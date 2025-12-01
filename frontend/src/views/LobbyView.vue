@@ -9,8 +9,6 @@
 
     <div class="actions">
       <button v-if="isHost" @click="startGame">Empezar partida</button>
-
-      <button @click="goToGame">Ir a la partida</button>
     </div>
   </main>
 </template>
@@ -37,7 +35,14 @@ function startGame() {
 }
 
 function goToGame() {
-  router.push({ name: 'game', params: { code: roomCode.value } })
+  if (gameStore.phase !== 'reveal') {
+    return
+  }
+
+  router.push({
+    name: 'game',
+    params: { code: roomCode.value },
+  })
 }
 </script>
 

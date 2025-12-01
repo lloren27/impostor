@@ -96,6 +96,11 @@ export function getRoom(roomCode: string): Room | undefined {
   return rooms.get(roomCode.toUpperCase());
 }
 
+export function deleteRoom(roomCode: string): void {
+  const code = roomCode.toUpperCase();
+  rooms.delete(code);
+}
+
 export function removePlayer(socketId: string): void {
   for (const [code, room] of rooms.entries()) {
     const index = room.players.findIndex((p) => p.id === socketId);
@@ -177,6 +182,38 @@ export function startGame(roomCode: string): {
   room.currentTurnIndex = 0;
 
   return { room, roles };
+}
+
+export function restartGame(roomCode: string): {
+  room: Room;
+  roles: { playerId: string; isImpostor: boolean; character: string | null }[];
+} {
+  const code = roomCode.toUpperCase();
+  const room = rooms.get(code);
+  if (!room) {
+    throw new Error("ROOM_NOT_FOUND");
+  }
+
+  // resetear estado de la sala
+  room.phase = "lobby";
+  room.currentRound = 0;
+  room.words = [];
+  room.votes = [];
+  room.winner = null;
+  room.character = null;
+  room.impostorId = null;
+  room.baseOrder = [];
+  room.roundStartIndex = 0;
+  room.currentTurnIndex = 0;
+
+  room.players.forEach((p) => {
+    p.alive = true;
+    p.isImpostor = false;
+    p.character = null;
+  });
+
+  // reutilizamos la lógica de startGame
+  return startGame(roomCode);
 }
 
 /**

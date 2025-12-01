@@ -3,7 +3,19 @@ import express from "express";
 import http from "http";
 import cors from "cors";
 import { Server as SocketIOServer } from "socket.io";
-import { createRoom, getRoom, joinRoom, removePlayer, startGame, startNextRound, startWordsRound, submitVote } from "./src/game/roomsManager";
+import {
+  getRoom,
+  createRoom,
+  joinRoom,
+  startGame,
+  startWordsRound,
+  submitWord,
+  submitVote,
+  startNextRound,
+  removePlayer,
+  restartGame,
+  deleteRoom,
+} from "./game/roomsManager";
 
 const PORT = process.env.PORT || 4000;
 
@@ -18,7 +30,7 @@ app.get("/health", (_req, res) => {
 });
 
 // src/index.ts
-app.get('/rooms/:code', (req, res) => {
+app.get("/rooms/:code", (req, res) => {
   const code = req.params.code.toUpperCase();
   const room = getRoom(code); // función de roomsManager
 
@@ -28,7 +40,6 @@ app.get('/rooms/:code', (req, res) => {
 
   return res.json({ exists: true, code });
 });
-
 
 const server = http.createServer(app);
 
@@ -93,22 +104,22 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on('startGame', (payload: { roomCode: string }) => {
+  socket.on("startGame", (payload: { roomCode: string }) => {
     try {
       const { roomCode } = payload;
       const room = getRoom(roomCode);
-      if (!room) throw new Error('ROOM_NOT_FOUND');
+      if (!room) throw new Error("ROOM_NOT_FOUND");
 
       const player = room.players.find((p) => p.id === socket.id);
       if (!player || !player.isHost) {
-        throw new Error('ONLY_HOST_CAN_START');
+        throw new Error("ONLY_HOST_CAN_START");
       }
 
       const { room: updatedRoom, roles } = startGame(roomCode);
 
       // Enviar rol a cada jugador de forma privada
       roles.forEach((r) => {
-        io.to(r.playerId).emit('yourRole', {
+        io.to(r.playerId).emit("yourRole", {
           isImpostor: r.isImpostor,
           character: r.character,
           roomCode: updatedRoom.code,
@@ -116,7 +127,7 @@ io.on("connection", (socket) => {
       });
 
       // Avisar a toda la sala de que la partida ha empezado y estamos en fase "reveal"
-      io.to(updatedRoom.code).emit('gameStarted', {
+      io.to(updatedRoom.code).emit("gameStarted", {
         roomCode: updatedRoom.code,
         phase: updatedRoom.phase,
         players: updatedRoom.players.map((p) => ({
@@ -127,50 +138,55 @@ io.on("connection", (socket) => {
       });
     } catch (err: any) {
       console.error(err);
-      socket.emit('errorMessage', { message: err.message || 'Error al empezar la partida' });
+      socket.emit("errorMessage", {
+        message: err.message || "Error al empezar la partida",
+      });
     }
   });
 
-  socket.on('startWordsRound', (payload: { roomCode: string }) => {
+  socket.on("startWordsRound", (payload: { roomCode: string }) => {
     try {
       const { roomCode } = payload;
       const room = getRoom(roomCode);
-      if (!room) throw new Error('ROOM_NOT_FOUND');
+      if (!room) throw new Error("ROOM_NOT_FOUND");
 
       const player = room.players.find((p) => p.id === socket.id);
       if (!player || !player.isHost) {
-        throw new Error('ONLY_HOST_CAN_START_ROUND');
+        throw new Error("ONLY_HOST_CAN_START_ROUND");
       }
 
       const { room: updatedRoom, currentPlayerId } = startWordsRound(roomCode);
 
-      io.to(updatedRoom.code).emit('phaseChanged', {
+      io.to(updatedRoom.code).emit("phaseChanged", {
         phase: updatedRoom.phase,
         currentRound: updatedRoom.currentRound,
       });
 
-      io.to(updatedRoom.code).emit('turnChanged', {
+      io.to(updatedRoom.code).emit("turnChanged", {
         currentPlayerId,
       });
     } catch (err: any) {
       console.error(err);
-      socket.emit('errorMessage', { message: err.message || 'Error al iniciar la ronda de palabras' });
+      socket.emit("errorMessage", {
+        message: err.message || "Error al iniciar la ronda de palabras",
+      });
     }
   });
 
-  socket.on('submitWord', (payload: { roomCode: string; word: string }) => {
+  socket.on("submitWord", (payload: { roomCode: string; word: string }) => {
     try {
       const { roomCode, word } = payload;
       const playerId = socket.id;
 
-      const { room: updatedRoom, finishedRound, currentPlayerId, newWord } = submitWord(
-        roomCode,
-        playerId,
-        word
-      );
+      const {
+        room: updatedRoom,
+        finishedRound,
+        currentPlayerId,
+        newWord,
+      } = submitWord(roomCode, playerId, word);
 
       // Emitimos la nueva palabra a todos
-      io.to(updatedRoom.code).emit('wordAdded', {
+      io.to(updatedRoom.code).emit("wordAdded", {
         playerId: newWord.playerId,
         word: newWord.word,
         words: updatedRoom.words,
@@ -178,80 +194,154 @@ io.on("connection", (socket) => {
 
       if (finishedRound) {
         // Ronda terminada → pasamos a votación
-        io.to(updatedRoom.code).emit('phaseChanged', {
+        io.to(updatedRoom.code).emit("phaseChanged", {
           phase: updatedRoom.phase, // 'voting'
           currentRound: updatedRoom.currentRound,
         });
       } else if (currentPlayerId) {
         // Turno del siguiente jugador
-        io.to(updatedRoom.code).emit('turnChanged', {
+        io.to(updatedRoom.code).emit("turnChanged", {
           currentPlayerId,
         });
       }
     } catch (err: any) {
       console.error(err);
-      socket.emit('errorMessage', { message: err.message || 'Error al enviar la palabra' });
+      socket.emit("errorMessage", {
+        message: err.message || "Error al enviar la palabra",
+      });
     }
   });
 
-  socket.on('submitVote', (payload: { roomCode: string; targetId: string }) => {
+  socket.on("submitVote", (payload: { roomCode: string; targetId: string }) => {
     try {
       const { roomCode, targetId } = payload;
       const voterId = socket.id;
-  
-      const {
-        room,
-        finishedVoting,
-        eliminatedPlayer,
-        wasImpostor,
-        winner,
-      } = submitVote(roomCode, voterId, targetId);
-  
+
+      const { room, finishedVoting, eliminatedPlayer, wasImpostor, winner } =
+        submitVote(roomCode, voterId, targetId);
+
       if (!finishedVoting) {
         return; // todavía no han votado todos
       }
-  
+
       // Emitimos el resultado de la ronda
-      io.to(room.code).emit('roundResult', {
+      io.to(room.code).emit("roundResult", {
         eliminatedPlayer,
         wasImpostor,
         winner,
       });
-  
-      if (room.phase === 'finished') {
-        io.to(room.code).emit('gameFinished', {
+
+      if (room.phase === "finished") {
+        io.to(room.code).emit("gameFinished", {
           winner: room.winner,
         });
       }
     } catch (err: any) {
       console.error(err);
-      socket.emit('errorMessage', { message: err.message || 'Error en la votación' });
+      socket.emit("errorMessage", {
+        message: err.message || "Error en la votación",
+      });
     }
   });
 
-  socket.on('startNextRound', (payload: { roomCode: string }) => {
+  socket.on("startNextRound", (payload: { roomCode: string }) => {
     try {
       const { roomCode } = payload;
-  
+
       const { room, currentPlayerId } = startNextRound(roomCode);
-  
-      io.to(room.code).emit('phaseChanged', {
+
+      io.to(room.code).emit("phaseChanged", {
         phase: room.phase,
         currentRound: room.currentRound,
       });
-  
-      io.to(room.code).emit('turnChanged', {
+
+      io.to(room.code).emit("turnChanged", {
         currentPlayerId,
       });
     } catch (err: any) {
       console.error(err);
-      socket.emit('errorMessage', { message: err.message || 'Error al iniciar la siguiente ronda' });
+      socket.emit("errorMessage", {
+        message: err.message || "Error al iniciar la siguiente ronda",
+      });
     }
   });
-  
-  
 
+  socket.on("restartGame", (payload: { roomCode: string }) => {
+    try {
+      const { roomCode } = payload;
+      const room = getRoom(roomCode);
+      if (!room) throw new Error("ROOM_NOT_FOUND");
 
+      const player = room.players.find((p) => p.id === socket.id);
+      if (!player || !player.isHost) {
+        throw new Error("ONLY_HOST_CAN_RESTART");
+      }
+
+      const { room: updatedRoom, roles } = restartGame(roomCode);
+
+      // igual que startGame: mandamos roles privados
+      roles.forEach((r) => {
+        io.to(r.playerId).emit("yourRole", {
+          isImpostor: r.isImpostor,
+          character: r.character,
+          roomCode: updatedRoom.code,
+        });
+      });
+
+      io.to(updatedRoom.code).emit("gameStarted", {
+        roomCode: updatedRoom.code,
+        phase: updatedRoom.phase, // 'reveal'
+        players: updatedRoom.players.map((p) => ({
+          id: p.id,
+          name: p.name,
+          alive: p.alive,
+          isHost: p.isHost,
+        })),
+      });
+    } catch (err: any) {
+      console.error(err);
+      socket.emit("errorMessage", {
+        message: err.message || "Error al reiniciar la partida",
+      });
+    }
+  });
+
+  socket.on("endGame", (payload: { roomCode: string }) => {
+    try {
+      const { roomCode } = payload;
+      const room = getRoom(roomCode);
+      if (!room) throw new Error("ROOM_NOT_FOUND");
+
+      const player = room.players.find((p) => p.id === socket.id);
+      if (!player || !player.isHost) {
+        throw new Error("ONLY_HOST_CAN_END_GAME");
+      }
+
+      // avisar a todos
+      io.to(room.code).emit("roomEnded");
+
+      // borrar la sala
+      deleteRoom(roomCode);
+    } catch (err: any) {
+      console.error(err);
+      socket.emit("errorMessage", {
+        message: err.message || "Error al finalizar la partida",
+      });
+    }
+  });
+
+  socket.on("castVote", ({ roomCode, voterId, voteFor }) => {
+    const room = getRoom(roomCode);
+    if (!room) return;
+
+    // Si ya votó, lo ignoras
+    if (room.votes[voterId]) return;
+
+    room.votes[voterId] = voteFor;
+
+    // Notificar a todos (opcional)
+    io.to(roomCode).emit("playerVoted", { voterId });
+  });
 
   // Desconexión
   socket.on("disconnect", () => {

@@ -45,34 +45,49 @@
     </section>
 
     <!-- FASE VOTING: votación -->
-    <section v-else-if="phase === 'voting'">
+
+    <section v-else-if="gameStore.phase === 'voting'">
       <h2>Votación</h2>
       <p>¿Quién crees que es el impostor?</p>
+
+      <!-- Feedback de que ya ha votado -->
+      <p v-if="gameStore.hasVoted" class="info-text">
+        Ya has votado. Espera a que termine la votación.
+      </p>
+
       <ul>
-        <li v-for="p in players.filter((p) => p.alive)" :key="p.id">
+        <li v-for="p in gameStore.players.filter((p) => p.alive)" :key="p.id">
           <label>
-            <input type="radio" name="vote" :value="p.id" v-model="myVote" />
+            <input
+              type="radio"
+              name="vote"
+              :value="p.id"
+              v-model="gameStore.myVote"
+              :disabled="gameStore.hasVoted"
+            />
             {{ p.name }}
           </label>
         </li>
       </ul>
-      <button @click="submitVote">Votar</button>
+
+      <button @click="submitVote" :disabled="gameStore.hasVoted || !gameStore.myVote">Votar</button>
     </section>
 
     <!-- FASE REVEALROUND / FIN: resultado ronda o final -->
     <section v-else-if="phase === 'revealRound' || phase === 'finished'">
       <h2>Resultado de la ronda</h2>
+
       <div v-if="gameStore.lastRoundResult">
         <p v-if="gameStore.lastRoundResult.eliminatedPlayer">
           Expulsado:
           <strong>{{ gameStore.lastRoundResult.eliminatedPlayer.name }}</strong>
-          <span v-if="gameStore.lastRoundResult.wasImpostor"> (ERA el impostor)</span>
-          <span v-else> (NO era el impostor)</span>
+          <span v-if="gameStore.lastRoundResult.wasImpostor"> (ERA el impostor) </span>
+          <span v-else> (NO era el impostor) </span>
         </p>
 
         <p v-if="gameStore.lastRoundResult.winner">
+          Ganador:
           <strong>
-            Ganador:
             {{ gameStore.lastRoundResult.winner === 'players' ? 'Los jugadores' : 'El impostor' }}
           </strong>
         </p>
@@ -80,7 +95,17 @@
 
       <div v-if="phase === 'finished'">
         <p>La partida ha terminado.</p>
+
+        <div class="buttons-finished">
+          <!-- Solo el host puede reiniciar o cerrar la sala -->
+          <button v-if="gameStore.isHost" @click="restartGame">Reiniciar partida</button>
+          <button v-if="gameStore.isHost" @click="finishGame">Finalizar partida</button>
+
+          <!-- Para el resto de jugadores, solo mostramos que esperen al host -->
+          <p v-else>Esperando a que el anfitrión decida reiniciar o finalizar la partida...</p>
+        </div>
       </div>
+
       <div v-else>
         <button @click="startNextRound">Siguiente ronda</button>
       </div>
@@ -89,13 +114,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useGameSocket } from '@/composables/useGameSocket'
 import { useGameStore } from '@/stores/gameStore'
 import { socket } from '@/services/socket'
 
 const route = useRoute()
+const router = useRouter()
 const { gameStore } = useGameSocket()
 
 const phase = computed(() => gameStore.phase)
@@ -107,7 +133,6 @@ const currentPlayerId = computed(() => gameStore.currentPlayerId)
 const roomCode = computed(() => route.params.code as string)
 
 const myWord = ref('')
-const myVote = ref<string | null>(null)
 
 function sendWord() {
   if (!myWord.value.trim()) return
@@ -119,11 +144,17 @@ function sendWord() {
 }
 
 function submitVote() {
-  if (!myVote.value) return
-  socket.emit('submitVote', {
-    roomCode: roomCode.value,
-    targetId: myVote.value,
+  if (gameStore.hasVoted) return
+  if (!gameStore.myVote) return
+  if (!gameStore.me || !gameStore.roomCode) return
+
+  socket.emit('castVote', {
+    roomCode: gameStore.roomCode,
+    voterId: gameStore.me.id,
+    voteFor: gameStore.myVote,
   })
+
+  gameStore.markAsVoted()
 }
 
 function startWordsRound() {
@@ -133,6 +164,28 @@ function startWordsRound() {
 function startNextRound() {
   socket.emit('startNextRound', { roomCode: roomCode.value })
 }
+
+function restartGame() {
+  socket.emit('restartGame', { roomCode: roomCode.value })
+}
+
+function finishGame() {
+  socket.emit('endGame', { roomCode: roomCode.value })
+}
+
+function handleRoomEnded() {
+  // resetear estado local y volver a Home
+  gameStore.$reset()
+  router.push({ name: 'home' })
+}
+
+onMounted(() => {
+  socket.on('roomEnded', handleRoomEnded)
+})
+
+onUnmounted(() => {
+  socket.off('roomEnded', handleRoomEnded)
+})
 </script>
 
 <style scoped>
@@ -146,5 +199,12 @@ input {
 button {
   margin-top: 0.5rem;
   padding: 0.5rem;
+}
+
+.buttons-finished {
+  margin-top: 1rem;
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 </style>

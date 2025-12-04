@@ -24,10 +24,7 @@ const app = express();
 // Middleware
 app.use(
   cors({
-    origin: [
-      "http://localhost:5173", 
-      "https://impostor-frontend.onrender.com", 
-    ],
+    origin: ["http://localhost:5173", "https://impostor-frontend.onrender.com"],
     methods: ["GET", "POST"],
   })
 );
@@ -53,16 +50,15 @@ const server = http.createServer(app);
 
 const io = new SocketIOServer(server, {
   cors: {
-    origin: [
-      "http://localhost:5173",
-      "https://impostor-frontend.onrender.com",
-    ],
+    origin: ["http://localhost:5173", "https://impostor-frontend.onrender.com"],
     methods: ["GET", "POST"],
   },
 });
 
 io.on("connection", (socket) => {
-  console.log(`Nuevo cliente conectado: ${socket.id}`);
+  socket.onAny((event, ...args) => {
+    console.log("[onAny]", event, "from", socket.id, "payload:", args[0]);
+  });
 
   socket.on("createRoom", (payload: { name: string }) => {
     try {
@@ -127,9 +123,6 @@ io.on("connection", (socket) => {
 
       const { room: updatedRoom, roles } = startGame(roomCode);
 
-      console.log("aqio --->", roomCode);
-
-      // Enviar rol a cada jugador de forma privada
       roles.forEach((r) => {
         io.to(r.playerId).emit("yourRole", {
           isImpostor: r.isImpostor,
@@ -138,7 +131,6 @@ io.on("connection", (socket) => {
         });
       });
 
-      // Avisar a toda la sala de que la partida ha empezado y estamos en fase "reveal"
       io.to(updatedRoom.code).emit("gameStarted", {
         roomCode: updatedRoom.code,
         phase: updatedRoom.phase,
@@ -287,17 +279,33 @@ io.on("connection", (socket) => {
   socket.on("restartGame", (payload: { roomCode: string }) => {
     try {
       const { roomCode } = payload;
+      console.log("[restartGame received]", { socketId: socket.id, roomCode });
+
       const room = getRoom(roomCode);
+      console.log("[restartGame] room:", room);
+
       if (!room) throw new Error("ROOM_NOT_FOUND");
 
       const player = room.players.find((p) => p.id === socket.id);
+      console.log("[restartGame] player found:", player);
+
       if (!player || !player.isHost) {
         throw new Error("ONLY_HOST_CAN_RESTART");
       }
 
       const { room: updatedRoom, roles } = restartGame(roomCode);
 
-      // igual que startGame: mandamos roles privados
+      console.log("[restartGame] restartGame OK, new room state:", {
+        phase: updatedRoom.phase,
+        currentRound: updatedRoom.currentRound,
+        players: updatedRoom.players.map((p) => ({
+          id: p.id,
+          name: p.name,
+          isHost: p.isHost,
+          alive: p.alive,
+        })),
+      });
+
       roles.forEach((r) => {
         io.to(r.playerId).emit("yourRole", {
           isImpostor: r.isImpostor,
@@ -308,7 +316,7 @@ io.on("connection", (socket) => {
 
       io.to(updatedRoom.code).emit("gameStarted", {
         roomCode: updatedRoom.code,
-        phase: updatedRoom.phase, // 'reveal'
+        phase: updatedRoom.phase,
         players: updatedRoom.players.map((p) => ({
           id: p.id,
           name: p.name,
@@ -317,7 +325,7 @@ io.on("connection", (socket) => {
         })),
       });
     } catch (err: any) {
-      console.error(err);
+      console.error("[restartGame ERROR]", err);
       socket.emit("errorMessage", {
         message: err.message || "Error al reiniciar la partida",
       });
@@ -327,21 +335,26 @@ io.on("connection", (socket) => {
   socket.on("endGame", (payload: { roomCode: string }) => {
     try {
       const { roomCode } = payload;
+      console.log("[endGame received]", { socketId: socket.id, roomCode });
+
       const room = getRoom(roomCode);
+      console.log("[endGame] room:", room);
+
       if (!room) throw new Error("ROOM_NOT_FOUND");
 
       const player = room.players.find((p) => p.id === socket.id);
+      console.log("[endGame] player found:", player);
+
       if (!player || !player.isHost) {
         throw new Error("ONLY_HOST_CAN_END_GAME");
       }
 
-      // avisar a todos
       io.to(room.code).emit("roomEnded");
-
-      // borrar la sala
       deleteRoom(roomCode);
+
+      console.log("[endGame] room deleted OK");
     } catch (err: any) {
-      console.error(err);
+      console.error("[endGame ERROR]", err);
       socket.emit("errorMessage", {
         message: err.message || "Error al finalizar la partida",
       });
@@ -350,10 +363,7 @@ io.on("connection", (socket) => {
 
   // Desconexión
   socket.on("disconnect", () => {
-    console.log(`Cliente desconectado: ${socket.id}`);
     removePlayer(socket.id);
-    // En un MVP podríamos emitir un "playersUpdated" a las salas afectadas,
-    // más adelante podemos mejorarlo si guardamos el código de sala en el socket.
   });
 });
 

@@ -28,12 +28,11 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { useGameSocket } from '@/composables/useGameSocket'
 import { socket } from '@/services/socket'
 
 const route = useRoute()
-const router = useRouter()
 const { gameStore } = useGameSocket()
 
 const roomCode = computed(() => route.params.code as string)

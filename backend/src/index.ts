@@ -156,8 +156,6 @@ io.on("connection", (socket) => {
         throw new Error("ONLY_HOST_CAN_START_ROUND");
       }
 
-      console.log("aqio --->", roomCode);
-
       const { room: updatedRoom, currentPlayerId } = startWordsRound(roomCode);
 
       io.to(updatedRoom.code).emit("phaseChanged", {

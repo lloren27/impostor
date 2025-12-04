@@ -1,0 +1,75 @@
+@use './variables' as *;
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: $font-family-base;
+  background: linear-gradient(135deg, #020617, #0b1120);
+  color: $color-text;
+}
+
+#app {
+  min-height: 100vh;
+  display: flex;
+}
+
+/**
+ * Layout genérico de página.
+ * Úsalo en tus views: <main class="page page--lobby">...</main>
+ */
+.page {
+  flex: 1;
+  max-width: 480px; // ideal para móvil, centrado
+  margin: 0 auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/** Cabecera de página (título, info partida, etc.) */
+.page__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.page__title {
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.page__subtitle {
+  font-size: 0.9rem;
+  color: $color-text-muted;
+}
+
+/** Zona principal de contenido (lista de jugadores, palabras, votos…) */
+.page__content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/** Footer para botones principales (continuar, votar, etc.) */
+.page__footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* En pantallas más grandes damos un poco más de aire */
+@media (min-width: $bp-tablet) {
+  .page {
+    max-width: 700px;
+    padding: 24px 20px;
+  }
+
+  .page__title {
+    font-size: 1.8rem;
+  }
+}

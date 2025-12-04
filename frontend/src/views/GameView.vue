@@ -1,131 +1,145 @@
 <template>
-  <main class="game">
-    <h1>Partida – Sala {{ roomCode }}</h1>
-    <p>Fase: {{ phase }}</p>
-
-    <!-- FASE REVEAL: cada uno ve su personaje / rol -->
-    <section v-if="phase === 'reveal'">
-      <h2>Tu rol</h2>
-      <p v-if="myRole">
-        <span v-if="myRole.isImpostor">
-          Eres el
-          <p class="impostor-style">IMPOSTOR</p>
-          . No sabes el personaje, intenta camuflarte.
-        </span>
-        <span v-else>
-          Tu personaje es: <strong>{{ myRole.character }}</strong>
-        </span>
-      </p>
-      <button class="button-start-word" v-if="gameStore.isHost" @click="startWordsRound">
-        Empezar ronda de palabras
-      </button>
-    </section>
-
-    <!-- FASE WORDS: ronda de palabras -->
-    <section v-else-if="phase === 'words'">
-      En esta ronda empieza hablando:
-      <strong>{{ roundStarterName }}</strong>
-      <h2>Ronda de palabras (ronda {{ gameStore.currentRound }})</h2>
-
-      <h3>Palabras dichas</h3>
-      <ul>
-        <li v-for="w in words" :key="w.playerId + w.word">
-          {{ players.find((p) => p.id === w.playerId)?.name || '??' }}:
-          {{ w.word }}
-        </li>
-      </ul>
-
-      <div v-if="isMyTurn">
-        <p>Es tu turno. Escribe una palabra relacionada con el personaje.</p>
-        <input v-model="myWord" placeholder="Tu palabra" />
-        <button @click="sendWord">Enviar</button>
+  <main class="page page--game">
+    <header class="page__header">
+      <div>
+        <h1 class="page__title">Sala {{ roomCode }}</h1>
+        <p class="page__subtitle">Fase: {{ $t(`phases.${gameStore.phase}`) }}</p>
       </div>
-      <div v-else>
-        <p>
-          Es el turno de
-          <strong>
-            {{ players.find((p) => p.id === currentPlayerId)?.name || '...' }}
-          </strong>
-        </p>
+      <div v-if="roundStarterName && phase === 'words'" class="round-indicator">
+        Empieza: <strong>{{ roundStarterName }}</strong>
       </div>
-    </section>
+    </header>
 
-    <!-- FASE VOTING: votación -->
+    <section class="page__content">
+      <section v-if="phase === 'reveal'" class="card">
+        <h2>Tu rol</h2>
 
-    <section v-else-if="gameStore.phase === 'voting'">
-      <h2>Votación</h2>
-      <p>¿Quién crees que es el impostor?</p>
-
-      <!-- Feedback de que ya ha votado -->
-      <p v-if="gameStore.hasVoted" class="info-text">
-        Ya has votado. Espera a que termine la votación.
-      </p>
-
-      <ul>
-        <li
-          v-for="p in gameStore.players.filter((p) => p.alive && p.id !== gameStore.me?.id)"
-          :key="p.id"
-        >
-          <label>
-            <input
-              type="radio"
-              name="vote"
-              :value="p.id"
-              v-model="gameStore.myVote"
-              :disabled="gameStore.hasVoted"
-            />
-            {{ p.name }}
-          </label>
-        </li>
-      </ul>
-
-      <button @click="submitVote" :disabled="gameStore.hasVoted || !gameStore.myVote">Votar</button>
-    </section>
-
-    <!-- FASE REVEALROUND / FIN: resultado ronda o final -->
-    <section v-else-if="phase === 'revealRound' || phase === 'finished'">
-      <h2>Resultado de la ronda</h2>
-
-      <div v-if="gameStore.lastRoundResult">
-        <p v-if="gameStore.lastRoundResult.eliminatedPlayer">
-          Expulsado:
-          <strong>{{ gameStore.lastRoundResult.eliminatedPlayer.name }}</strong>
-          <span v-if="gameStore.lastRoundResult.wasImpostor"> (ERA el impostor) </span>
-          <span v-else> (NO era el impostor) </span>
+        <p v-if="myRole">
+          <template v-if="myRole.isImpostor">
+            <span>Eres el</span>
+            <span class="impostor-style">IMPOSTOR</span>
+            <span>. No sabes el personaje, intenta camuflarte.</span>
+          </template>
+          <template v-else>
+            Tu personaje es: <strong>{{ myRole.character }}</strong>
+          </template>
         </p>
 
-        <p v-if="gameStore.lastRoundResult.winner">
-          Ganador:
-          <strong>
-            {{ gameStore.lastRoundResult.winner === 'players' ? 'Los jugadores' : 'El impostor' }}
-          </strong>
+        <button v-if="gameStore.isHost" class="btn" @click="startWordsRound">
+          Empezar ronda de palabras
+        </button>
+      </section>
+      <section v-else-if="phase === 'words'" class="card">
+        <p class="page__subtitle">
+          En esta ronda empieza hablando
+          <strong>{{ roundStarterName }}</strong
+          >.
         </p>
-      </div>
 
-      <div v-if="phase === 'finished'">
-        <p>La partida ha terminado.</p>
+        <h2>Ronda de palabras (ronda {{ gameStore.currentRound }})</h2>
 
-        <div class="buttons-finished">
-          <!-- Solo el host puede reiniciar o cerrar la sala -->
-          <button v-if="gameStore.isHost" @click="restartGame">Reiniciar partida</button>
-          <button v-if="gameStore.isHost" @click="finishGame">Finalizar partida</button>
+        <h3>Palabras dichas</h3>
+        <ul class="list">
+          <li v-for="w in words" :key="w.playerId + w.word" class="list__item">
+            <span> {{ players.find((p) => p.id === w.playerId)?.name || '??' }}: </span>
+            <span>{{ w.word }}</span>
+          </li>
+        </ul>
 
-          <!-- Para el resto de jugadores, solo mostramos que esperen al host -->
-          <p v-else>Esperando a que el anfitrión decida reiniciar o finalizar la partida...</p>
+        <div v-if="isMyTurn" class="word-input">
+          <p>Es tu turno. Escribe una palabra relacionada con el personaje.</p>
+          <input v-model="myWord" placeholder="Tu palabra" />
+          <button class="btn" @click="sendWord">Enviar</button>
         </div>
-      </div>
 
-      <div v-else>
-        <button @click="startNextRound">Siguiente ronda</button>
-      </div>
+        <div v-else>
+          <p>
+            Es el turno de
+            <strong>
+              {{ players.find((p) => p.id === currentPlayerId)?.name || '...' }}
+            </strong>
+          </p>
+        </div>
+      </section>
+
+      <!-- FASE VOTING: votación -->
+      <section v-else-if="gameStore.phase === 'voting'" class="card">
+        <h2>Votación</h2>
+        <p>¿Quién crees que es el impostor?</p>
+
+        <p v-if="gameStore.hasVoted" class="info-text">
+          Ya has votado. Espera a que termine la votación.
+        </p>
+
+        <ul class="list">
+          <li
+            v-for="p in gameStore.players.filter((p) => p.alive && p.id !== gameStore.me?.id)"
+            :key="p.id"
+            class="list__item"
+          >
+            <label class="vote-option">
+              <input
+                type="radio"
+                name="vote"
+                :value="p.id"
+                v-model="gameStore.myVote"
+                :disabled="gameStore.hasVoted"
+              />
+              <span>{{ p.name }}</span>
+            </label>
+          </li>
+        </ul>
+
+        <button class="btn" @click="submitVote" :disabled="gameStore.hasVoted || !gameStore.myVote">
+          Votar
+        </button>
+      </section>
+
+      <!-- FASE REVEALROUND / FIN: resultado ronda o final -->
+      <section v-else-if="phase === 'revealRound' || phase === 'finished'" class="card">
+        <h2>Resultado de la ronda</h2>
+
+        <div v-if="gameStore.lastRoundResult">
+          <p v-if="gameStore.lastRoundResult.eliminatedPlayer">
+            Expulsado:
+            <strong>{{ gameStore.lastRoundResult.eliminatedPlayer.name }}</strong>
+            <span v-if="gameStore.lastRoundResult.wasImpostor"> (ERA el impostor) </span>
+            <span v-else> (NO era el impostor) </span>
+          </p>
+
+          <p v-if="gameStore.lastRoundResult.winner">
+            Ganador:
+            <strong>
+              {{ gameStore.lastRoundResult.winner === 'players' ? 'Los jugadores' : 'El impostor' }}
+            </strong>
+          </p>
+        </div>
+
+        <div v-if="phase === 'finished'" class="buttons-finished">
+          <p>La partida ha terminado.</p>
+
+          <div class="buttons-finished__actions">
+            <button v-if="gameStore.isHost" class="btn" @click="restartGame">
+              Reiniciar partida
+            </button>
+            <button v-if="gameStore.isHost" class="btn btn--secondary" @click="finishGame">
+              Finalizar partida
+            </button>
+            <p v-else>Esperando a que el anfitrión decida reiniciar o finalizar la partida...</p>
+          </div>
+        </div>
+
+        <div v-else class="buttons-finished">
+          <button class="btn" @click="startNextRound">Siguiente ronda</button>
+        </div>
+      </section>
     </section>
   </main>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useGameSocket } from '@/composables/useGameSocket'
-import { GamePhase } from '@/interfaces/game.interface'
 
 const { socket, gameStore } = useGameSocket()
 const roomCode = computed(() => gameStore.roomCode)
@@ -179,37 +193,57 @@ function finishGame() {
 </script>
 
 <style scoped>
-.game {
-  max-width: 700px;
-  margin: 2rem auto;
+.word-input {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
 }
+
 input {
-  padding: 0.5rem;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #1f2937;
+  background: rgba(15, 23, 42, 0.9);
+  color: #f9fafb;
 }
-button {
-  margin-top: 0.5rem;
-  padding: 0.5rem;
+
+input::placeholder {
+  color: #6b7280;
+}
+
+.vote-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.info-text {
+  font-size: 0.85rem;
+  color: #9ca3af;
+  margin-bottom: 8px;
 }
 
 .buttons-finished {
-  margin-top: 1rem;
+  margin-top: 16px;
   display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
-  button {
-    cursor: pointer;
-  }
+  flex-direction: column;
+  gap: 10px;
 }
 
-.button-start-word {
-  cursor: pointer;
+.buttons-finished__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .impostor-style {
-  color: red;
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #000;
+  color: #f97373;
   font-weight: 700;
-  background-color: black;
-  width: 200px;
-  text-align: center;
+  margin: 0 4px;
 }
 </style>

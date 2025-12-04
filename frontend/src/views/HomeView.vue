@@ -1,21 +1,45 @@
 <template>
-  <main class="home">
-    <h1>Juego del Impostor</h1>
-
-    <section class="card">
-      <h2>Crear sala</h2>
-      <input v-model="nameCreate" placeholder="Tu nombre" />
-      <button @click="createRoom">Crear</button>
-    </section>
-
-    <section class="card">
-      <h2>Unirse a sala</h2>
-      <input v-model="nameJoin" placeholder="Tu nombre" />
-      <input v-model="roomCodeJoin" placeholder="Código de sala" />
-      <button @click="joinRoom">Unirse</button>
-      <div v-if="errorMessage" class="error-box">
-        {{ errorMessage }}
+  <main class="page page--home">
+    <header class="page__header">
+      <div>
+        <h1 class="page__title">Juego del Impostor</h1>
+        <p class="page__subtitle">Crea una sala nueva o únete a una existente.</p>
       </div>
+    </header>
+
+    <section class="page__content">
+      <!-- Crear sala -->
+      <section class="card">
+        <h2>Crear sala</h2>
+
+        <div class="field">
+          <label for="name-create">Tu nombre</label>
+          <input id="name-create" v-model="nameCreate" placeholder="Tu nombre" />
+        </div>
+
+        <button class="btn" @click="createRoom">Crear</button>
+      </section>
+
+      <!-- Unirse a sala -->
+      <section class="card">
+        <h2>Unirse a sala</h2>
+
+        <div class="field">
+          <label for="name-join">Tu nombre</label>
+          <input id="name-join" v-model="nameJoin" placeholder="Tu nombre" />
+        </div>
+
+        <div class="field">
+          <label for="room-code-join">Código de sala</label>
+          <input id="room-code-join" v-model="roomCodeJoin" placeholder="Código de sala" />
+        </div>
+
+        <button class="btn btn--secondary" @click="joinRoom">Unirse</button>
+
+        <div v-if="errorMessage" class="error-box">
+          {{ errorMessage }}
+        </div>
+      </section>
     </section>
   </main>
 </template>
@@ -91,34 +115,31 @@ async function joinRoom() {
 }
 </script>
 <style scoped>
-.home {
-  max-width: 600px;
-  margin: 2rem auto;
+.field {
   display: flex;
   flex-direction: column;
-  gap: 2rem;
+  gap: 4px;
+  margin-bottom: 10px;
 }
-.card {
-  padding: 1.5rem;
-  border-radius: 8px;
-  border: 1px solid #ccc;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
+
 input {
-  padding: 0.5rem;
-}
-button {
-  padding: 0.5rem;
-  cursor: pointer;
-}
-.error-box {
-  margin-top: 10px;
   padding: 10px;
-  background: #ffdddd;
-  border: 1px solid #cc0000;
-  color: #660000;
-  border-radius: 4px;
+  border-radius: 8px;
+  border: 1px solid #1f2937;
+  background: rgba(15, 23, 42, 0.9);
+  color: #f9fafb;
+}
+
+input::placeholder {
+  color: #6b7280;
+}
+
+.error-box {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.1);
+  color: #fecaca;
+  font-size: 0.85rem;
 }
 </style>

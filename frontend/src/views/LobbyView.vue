@@ -1,15 +1,28 @@
 <template>
-  <main class="lobby">
-    <h1>Sala {{ roomCode }}</h1>
+  <main class="page page--lobby">
+    <header class="page__header">
+      <div>
+        <h1 class="page__title">Sala {{ roomCode }}</h1>
+        <p class="page__subtitle">Comparte el código con tus amigos para que se unan.</p>
+      </div>
+    </header>
 
-    <h2>Jugadores</h2>
-    <ul>
-      <li v-for="p in players" :key="p.id">{{ p.name }} <span v-if="p.isHost">👑</span></li>
-    </ul>
+    <section class="page__content">
+      <section class="card">
+        <h2>Jugadores</h2>
 
-    <div class="actions">
-      <button v-if="isHost" @click="startGame">Empezar partida</button>
-    </div>
+        <ul class="list">
+          <li v-for="p in players" :key="p.id" class="list__item">
+            <span>{{ p.name }}</span>
+            <span v-if="p.isHost" class="badge">Anfitrión</span>
+          </li>
+        </ul>
+      </section>
+    </section>
+
+    <footer class="page__footer">
+      <button v-if="isHost" class="btn" @click="startGame">Empezar partida</button>
+    </footer>
   </main>
 </template>
 
@@ -34,14 +47,4 @@ function startGame() {
 }
 </script>
 
-<style scoped>
-.lobby {
-  max-width: 600px;
-  margin: 2rem auto;
-}
-.actions {
-  margin-top: 1.5rem;
-  display: flex;
-  gap: 1rem;
-}
-</style>
+<style scoped></style>

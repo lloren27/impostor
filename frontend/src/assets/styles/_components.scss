@@ -1,0 +1,101 @@
+@use './variables' as *;
+
+/* Tarjeta reutilizable para bloques de contenido */
+.card {
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  padding: 14px 16px;
+  box-shadow: $shadow-soft;
+  border: 1px solid $color-border;
+}
+
+/* Listados (jugadores, rondas, votos) */
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.list__item {
+  padding: 10px 12px;
+  border-radius: $radius-md;
+  border: 1px solid $color-border;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: rgba(15, 23, 42, 0.7);
+}
+
+/* Botones base */
+.btn {
+  width: 100%;
+  border: none;
+  border-radius: $radius-md;
+  padding: 12px 14px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: $color-text;
+  background: $color-primary;
+  box-shadow: $shadow-soft;
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease, background 0.1s ease;
+}
+
+.btn:active {
+  transform: translateY(1px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+}
+
+.btn--secondary {
+  background: transparent;
+  border: 1px solid $color-border;
+}
+
+.btn--danger {
+  background: $color-danger;
+}
+
+/* Badges para estado de jugador, rol, etc. */
+.badge {
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid $color-border;
+}
+
+.badge--impostor {
+  border-color: $color-danger;
+  color: $color-danger;
+}
+
+.badge--crew {
+  border-color: $color-primary;
+  color: $color-primary;
+}
+
+/* Pequeño bloque fijo arriba para mostrar quién empieza la ronda */
+.round-indicator {
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.95);
+  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Ajustes para pantallas grandes */
+@media (min-width: $bp-tablet) {
+  .page__footer {
+    flex-direction: row;
+  }
+
+  .btn {
+    width: auto;
+    min-width: 180px;
+  }
+}

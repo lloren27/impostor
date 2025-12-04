@@ -9,12 +9,19 @@ export const CHARACTERS: string[] = [
   "Shrek",
   "Mario Bros",
   "Batman",
+  "Rosalia",
   "Iron Man",
   "Homer Simpson",
+  "Pocahontas",
   "Darth Vader",
   "Ibai",
   "El Rey Juan Carlos",
   "Abalos",
   "Iker Jimenez",
-  "Cristiano Ronaldo"
+  "Cristiano Ronaldo",
+  "Gabriel Rufian",
+  "Clara Lago",
+  "Barcenas",
+  "Perico Delgado",
+  "Arantxa Sanchez Vicario"
 ];

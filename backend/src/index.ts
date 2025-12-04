@@ -22,7 +22,15 @@ const PORT = process.env.PORT || 4000;
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173", 
+      "https://impostor-frontend.onrender.com", 
+    ],
+    methods: ["GET", "POST"],
+  })
+);
 app.use(express.json());
 
 app.get("/health", (_req, res) => {
@@ -45,7 +53,11 @@ const server = http.createServer(app);
 
 const io = new SocketIOServer(server, {
   cors: {
-    origin: "*",
+    origin: [
+      "http://localhost:5173",
+      "https://impostor-frontend.onrender.com",
+    ],
+    methods: ["GET", "POST"],
   },
 });
 

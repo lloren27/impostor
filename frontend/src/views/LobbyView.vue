@@ -16,7 +16,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useGameStore } from '@/stores/gameStore'
 import { useGameSocket } from '@/composables/useGameSocket'
 import { socket } from '@/services/socket'
 
@@ -32,17 +31,6 @@ const isHost = computed(() => gameStore.isHost)
 function startGame() {
   if (!roomCode.value) return
   socket.emit('startGame', { roomCode: roomCode.value })
-}
-
-function goToGame() {
-  if (gameStore.phase !== 'reveal') {
-    return
-  }
-
-  router.push({
-    name: 'game',
-    params: { code: roomCode.value },
-  })
 }
 </script>
 

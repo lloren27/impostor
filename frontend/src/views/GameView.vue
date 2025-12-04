@@ -8,17 +8,23 @@
       <h2>Tu rol</h2>
       <p v-if="myRole">
         <span v-if="myRole.isImpostor">
-          Eres el <strong>IMPOSTOR</strong>. No sabes el personaje, intenta camuflarte.
+          Eres el
+          <p class="impostor-style">IMPOSTOR</p>
+          . No sabes el personaje, intenta camuflarte.
         </span>
         <span v-else>
           Tu personaje es: <strong>{{ myRole.character }}</strong>
         </span>
       </p>
-      <button @click="startWordsRound">Empezar ronda de palabras</button>
+      <button class="button-start-word" v-if="gameStore.isHost" @click="startWordsRound">
+        Empezar ronda de palabras
+      </button>
     </section>
 
     <!-- FASE WORDS: ronda de palabras -->
     <section v-else-if="phase === 'words'">
+      En esta ronda empieza hablando:
+      <strong>{{ roundStarterName }}</strong>
       <h2>Ronda de palabras (ronda {{ gameStore.currentRound }})</h2>
 
       <h3>Palabras dichas</h3>
@@ -56,7 +62,10 @@
       </p>
 
       <ul>
-        <li v-for="p in gameStore.players.filter((p) => p.alive)" :key="p.id">
+        <li
+          v-for="p in gameStore.players.filter((p) => p.alive && p.id !== gameStore.me?.id)"
+          :key="p.id"
+        >
           <label>
             <input
               type="radio"
@@ -115,29 +124,25 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
 import { useGameSocket } from '@/composables/useGameSocket'
-import { useGameStore } from '@/stores/gameStore'
-import { socket } from '@/services/socket'
+import { GamePhase } from '@/interfaces/game.interface'
 
-const route = useRoute()
-const router = useRouter()
-const { gameStore } = useGameSocket()
-
+const { socket, gameStore } = useGameSocket()
+const roomCode = computed(() => gameStore.roomCode)
 const phase = computed(() => gameStore.phase)
 const myRole = computed(() => gameStore.myRole)
 const players = computed(() => gameStore.players)
 const words = computed(() => gameStore.words)
 const isMyTurn = computed(() => gameStore.isMyTurn)
 const currentPlayerId = computed(() => gameStore.currentPlayerId)
-const roomCode = computed(() => route.params.code as string)
+const roundStarterName = computed(() => gameStore.roundStarterName)
 
 const myWord = ref('')
 
 function sendWord() {
   if (!myWord.value.trim()) return
   socket.emit('submitWord', {
-    roomCode: roomCode.value,
+    roomCode: gameStore.roomCode,
     word: myWord.value.trim(),
   })
   myWord.value = ''
@@ -148,10 +153,9 @@ function submitVote() {
   if (!gameStore.myVote) return
   if (!gameStore.me || !gameStore.roomCode) return
 
-  socket.emit('castVote', {
+  socket.emit('submitVote', {
     roomCode: gameStore.roomCode,
-    voterId: gameStore.me.id,
-    voteFor: gameStore.myVote,
+    targetId: gameStore.myVote,
   })
 
   gameStore.markAsVoted()
@@ -172,20 +176,6 @@ function restartGame() {
 function finishGame() {
   socket.emit('endGame', { roomCode: roomCode.value })
 }
-
-function handleRoomEnded() {
-  // resetear estado local y volver a Home
-  gameStore.$reset()
-  router.push({ name: 'home' })
-}
-
-onMounted(() => {
-  socket.on('roomEnded', handleRoomEnded)
-})
-
-onUnmounted(() => {
-  socket.off('roomEnded', handleRoomEnded)
-})
 </script>
 
 <style scoped>
@@ -206,5 +196,20 @@ button {
   display: flex;
   gap: 1rem;
   flex-wrap: wrap;
+  button {
+    cursor: pointer;
+  }
+}
+
+.button-start-word {
+  cursor: pointer;
+}
+
+.impostor-style {
+  color: red;
+  font-weight: 700;
+  background-color: black;
+  width: 200px;
+  text-align: center;
 }
 </style>

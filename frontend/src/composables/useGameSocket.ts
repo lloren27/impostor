@@ -1,8 +1,9 @@
 // src/composables/useGameSocket.ts
 import { onMounted, onUnmounted } from 'vue'
+import router from '@/router'
 import { socket } from '@/services/socket'
 import { useGameStore } from '@/stores/gameStore'
-import router from '@/router'
+import { GamePhase } from '@/interfaces/game.interface'
 
 export function useGameSocket() {
   const gameStore = useGameStore()
@@ -28,12 +29,33 @@ export function useGameSocket() {
       gameStore.setPhase('reveal')
     })
 
-    socket.on('gameStarted', ({ phase, players, roomCode }) => {
-      gameStore.roomCode = roomCode
-      gameStore.updatePlayers(players)
-      gameStore.setPhase(phase)
-      router.push({ name: 'game', params: { code: roomCode } })
-    })
+    socket.on(
+      'gameStarted',
+      ({
+        phase,
+        players,
+        roomCode,
+        currentRound,
+      }: {
+        phase: GamePhase
+        players: any[]
+        roomCode: string
+        currentRound?: number
+      }) => {
+        gameStore.roomCode = roomCode
+        gameStore.updatePlayers(players)
+        gameStore.setPhase(phase, currentRound)
+
+        // limpiar estado anterior
+        gameStore.resetWords()
+        gameStore.resetVoting()
+        gameStore.lastRoundResult = null
+        gameStore.setRoundStarter(null)
+        gameStore.setCurrentTurn(null)
+
+        router.push({ name: 'game', params: { code: roomCode } })
+      }
+    )
 
     socket.on('phaseChanged', ({ phase, currentRound }) => {
       gameStore.setPhase(phase, currentRound)
@@ -48,6 +70,10 @@ export function useGameSocket() {
     })
 
     socket.on('turnChanged', ({ currentPlayerId }) => {
+      if (gameStore.phase === 'words' && !gameStore.roundStarterId) {
+        gameStore.setRoundStarter(currentPlayerId)
+      }
+    
       gameStore.setCurrentTurn(currentPlayerId)
     })
 
@@ -66,6 +92,11 @@ export function useGameSocket() {
         winner,
       })
     })
+
+    socket.on('roomEnded', () => {
+      gameStore.$reset()
+      router.push({ name: 'home' })
+    })
   })
 
   onUnmounted(() => {
@@ -79,6 +110,7 @@ export function useGameSocket() {
     socket.off('wordAdded')
     socket.off('roundResult')
     socket.off('gameFinished')
+    socket.off('roomEnded')
   })
 
   return {

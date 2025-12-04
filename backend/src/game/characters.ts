@@ -10,7 +10,7 @@ export const CHARACTERS: string[] = [
   "Mario Bros",
   "Batman",
   "Iron Man",
-  "Homero Simpson",
+  "Homer Simpson",
   "Darth Vader",
   "Ibai",
   "El Rey Juan Carlos",

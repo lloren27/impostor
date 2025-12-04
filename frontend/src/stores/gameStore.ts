@@ -1,42 +1,6 @@
 // src/stores/gameStore.ts
+import { GamePhase, GameState, RoundResult, WordEntry } from '@/interfaces/game.interface'
 import { defineStore } from 'pinia'
-
-export type GamePhase = 'lobby' | 'reveal' | 'words' | 'voting' | 'revealRound' | 'finished'
-
-export interface Player {
-  id: string
-  name: string
-  alive: boolean
-  isHost?: boolean
-}
-
-export interface WordEntry {
-  playerId: string
-  word: string
-}
-
-export interface RoundResult {
-  eliminatedPlayer?: Player | null
-  wasImpostor?: boolean | null
-  winner?: 'players' | 'impostor' | null
-}
-
-interface GameState {
-  roomCode: string | null
-  me: Player | null
-  phase: GamePhase
-  currentRound: number
-  players: Player[]
-  currentPlayerId: string | null // al que le toca hablar
-  words: WordEntry[]
-  myRole: {
-    isImpostor: boolean
-    character: string | null
-  } | null
-  lastRoundResult: RoundResult | null
-  myVote: string | null // id del jugador al que voto
-  hasVoted: boolean
-}
 
 export const useGameStore = defineStore('game', {
   state: (): GameState => ({
@@ -51,14 +15,20 @@ export const useGameStore = defineStore('game', {
     lastRoundResult: null,
     myVote: null,
     hasVoted: false,
+    roundStarterId: null,
   }),
   // NO MODIFICAN SOLO COMPUTAN ESA INFORMACIÓN
   getters: {
     isHost(state): boolean {
-      return !!state.me && !!state.players.find((p) => p.id === state.me!.id && p.isHost)
+      return !!state.me?.isHost
     },
     isMyTurn(state): boolean {
       return !!state.me && state.currentPlayerId === state.me.id
+    },
+    roundStarterName(state): string | null {
+      if (!state.roundStarterId) return null
+      const p = state.players.find((p) => p.id === state.roundStarterId)
+      return p ? p.name : null
     },
   },
   // ACTIONS IMPLICAN ACTUALIZACIÓN
@@ -107,6 +77,9 @@ export const useGameStore = defineStore('game', {
     setLastRoundResult(result: RoundResult) {
       this.lastRoundResult = result
     },
+    setRoundStarter(playerId: string | null) {
+      this.roundStarterId = playerId
+    },
     resetWords() {
       this.words = []
     },
@@ -114,11 +87,11 @@ export const useGameStore = defineStore('game', {
       this.myVote = playerId
     },
     markAsVoted() {
-      this.hasVoted = true;
+      this.hasVoted = true
     },
     resetVoting() {
-      this.myVote = null;
-      this.hasVoted = false;
-    }
+      this.myVote = null
+      this.hasVoted = false
+    },
   },
 })

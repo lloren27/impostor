@@ -34,7 +34,6 @@ export interface Room {
   character: string | null;
   impostorId: string | null;
   currentRound: number;
-  // Estos los usaremos más adelante para turnos y rondas:
   baseOrder: string[];
   roundStartIndex: number;
   currentTurnIndex: number;

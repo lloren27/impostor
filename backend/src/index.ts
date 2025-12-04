@@ -45,14 +45,13 @@ const server = http.createServer(app);
 
 const io = new SocketIOServer(server, {
   cors: {
-    origin: "*", // luego puedes restringir al dominio de tu frontend
+    origin: "*",
   },
 });
 
 io.on("connection", (socket) => {
   console.log(`Nuevo cliente conectado: ${socket.id}`);
 
-  // Crear sala
   socket.on("createRoom", (payload: { name: string }) => {
     try {
       const { name } = payload;
@@ -77,7 +76,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Unirse a sala
   socket.on("joinRoom", (payload: { roomCode: string; name: string }) => {
     try {
       const { roomCode, name } = payload;
@@ -117,6 +115,8 @@ io.on("connection", (socket) => {
 
       const { room: updatedRoom, roles } = startGame(roomCode);
 
+      console.log("aqio --->", roomCode);
+
       // Enviar rol a cada jugador de forma privada
       roles.forEach((r) => {
         io.to(r.playerId).emit("yourRole", {
@@ -134,6 +134,7 @@ io.on("connection", (socket) => {
           id: p.id,
           name: p.name,
           alive: p.alive,
+          isHost: p.isHost,
         })),
       });
     } catch (err: any) {
@@ -154,6 +155,8 @@ io.on("connection", (socket) => {
       if (!player || !player.isHost) {
         throw new Error("ONLY_HOST_CAN_START_ROUND");
       }
+
+      console.log("aqio --->", roomCode);
 
       const { room: updatedRoom, currentPlayerId } = startWordsRound(roomCode);
 
@@ -221,8 +224,13 @@ io.on("connection", (socket) => {
         submitVote(roomCode, voterId, targetId);
 
       if (!finishedVoting) {
-        return; // todavía no han votado todos
+        return;
       }
+
+      io.to(room.code).emit("phaseChanged", {
+        phase: room.phase,
+        currentRound: room.currentRound,
+      });
 
       // Emitimos el resultado de la ronda
       io.to(room.code).emit("roundResult", {
@@ -328,19 +336,6 @@ io.on("connection", (socket) => {
         message: err.message || "Error al finalizar la partida",
       });
     }
-  });
-
-  socket.on("castVote", ({ roomCode, voterId, voteFor }) => {
-    const room = getRoom(roomCode);
-    if (!room) return;
-
-    // Si ya votó, lo ignoras
-    if (room.votes[voterId]) return;
-
-    room.votes[voterId] = voteFor;
-
-    // Notificar a todos (opcional)
-    io.to(roomCode).emit("playerVoted", { voterId });
   });
 
   // Desconexión

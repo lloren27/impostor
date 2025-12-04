@@ -212,7 +212,6 @@ export function restartGame(roomCode: string): {
     p.character = null;
   });
 
-  // reutilizamos la lógica de startGame
   return startGame(roomCode);
 }
 
@@ -226,7 +225,9 @@ export function startWordsRound(roomCode: string): {
   room: Room;
   currentPlayerId: string;
 } {
+  console.log("1", roomCode);
   const room = rooms.get(roomCode.toUpperCase());
+  console.log("2", room);
   if (!room) throw new Error("ROOM_NOT_FOUND");
 
   const alive = room.players.filter((p) => p.alive);
@@ -241,7 +242,7 @@ export function startWordsRound(roomCode: string): {
   room.baseOrder = alive.map((p) => p.id);
 
   if (room.currentRound === 1) {
-    room.roundStartIndex = 0;
+    room.roundStartIndex = Math.floor(Math.random() * room.baseOrder.length);
   } else {
     room.roundStartIndex = (room.roundStartIndex + 1) % room.baseOrder.length;
   }

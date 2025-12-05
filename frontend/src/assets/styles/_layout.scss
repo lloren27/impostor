@@ -7,6 +7,7 @@ body {
   font-family: $font-family-base;
   background: linear-gradient(135deg, #020617, #0b1120);
   color: $color-text;
+  font-size: 16px;
 }
 
 #app {
@@ -19,13 +20,18 @@ body {
  * Úsalo en tus views: <main class="page page--lobby">...</main>
  */
 .page {
-  flex: 1;
-  max-width: 480px; // ideal para móvil, centrado
-  margin: 0 auto;
-  padding: 16px;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 20px 16px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.page__title {
+  font-size: 1.8rem;
+  font-weight: 700;
 }
 
 /** Cabecera de página (título, info partida, etc.) */
@@ -34,11 +40,6 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-}
-
-.page__title {
-  font-size: 1.4rem;
-  font-weight: 700;
 }
 
 .page__subtitle {
@@ -62,14 +63,20 @@ body {
   gap: 10px;
 }
 
-/* En pantallas más grandes damos un poco más de aire */
-@media (min-width: $bp-tablet) {
+@media (max-width: 430px) {
+  html {
+    font-size: 17px;
+  }
+}
+
+@media (min-width: 768px) {
   .page {
-    max-width: 700px;
+    max-width: 480px;
+    margin: 24px auto;
     padding: 24px 20px;
   }
 
   .page__title {
-    font-size: 1.8rem;
+    font-size: 2rem;
   }
 }

@@ -128,6 +128,9 @@ input {
   border: 1px solid #1f2937;
   background: rgba(15, 23, 42, 0.9);
   color: #f9fafb;
+  padding: 10px 12px;
+  min-height: 44px;
+  font-size: 1rem;
 }
 
 input::placeholder {

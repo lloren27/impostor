@@ -8,10 +8,22 @@ import { GamePhase } from '@/interfaces/game.interface'
 export function useGameSocket() {
   const gameStore = useGameStore()
 
+  // ahora los callbacks reciben el payload
+  const roomJoinedCallbacks: Array<(payload: any) => void> = []
+  const errorCallbacks: Array<() => void> = []
+
+  function onRoomJoined(cb: (payload: any) => void) {
+    roomJoinedCallbacks.push(cb)
+  }
+
+  function onError(cb: () => void) {
+    errorCallbacks.push(cb)
+  }
+
   onMounted(() => {
-    // Respuesta al crear / unirse a una sala
     socket.on('roomJoined', (payload) => {
       gameStore.setRoomJoined(payload)
+      roomJoinedCallbacks.forEach((cb) => cb(payload))
     })
 
     socket.on('playersUpdated', ({ players }) => {
@@ -19,14 +31,8 @@ export function useGameSocket() {
     })
 
     socket.on('errorMessage', ({ message }) => {
-      // Por ahora un alert simple, luego lo cambiamos por UI bonita
       alert(message)
-    })
-
-    socket.on('yourRole', ({ isImpostor, character }) => {
-      gameStore.setMyRole(isImpostor, character)
-      // pasamos a fase reveal en el cliente si queremos
-      gameStore.setPhase('reveal')
+      errorCallbacks.forEach((cb) => cb())
     })
 
     socket.on(
@@ -46,7 +52,6 @@ export function useGameSocket() {
         gameStore.updatePlayers(players)
         gameStore.setPhase(phase, currentRound)
 
-        // limpiar estado anterior
         gameStore.resetWords()
         gameStore.resetVoting()
         gameStore.lastRoundResult = null
@@ -54,7 +59,7 @@ export function useGameSocket() {
         gameStore.setCurrentTurn(null)
 
         router.push({ name: 'game', params: { code: roomCode } })
-      }
+      },
     )
 
     socket.on('phaseChanged', ({ phase, currentRound }) => {
@@ -65,15 +70,20 @@ export function useGameSocket() {
       }
 
       if (phase === 'voting') {
-        gameStore.resetVoting() // 👈 limpia myVote y hasVoted
+        gameStore.resetVoting()
       }
+    })
+
+    socket.on('yourRole', ({ isImpostor, character }) => {
+      gameStore.setMyRole(isImpostor, character)
+      // pasamos a fase reveal en el cliente si queremos
+      gameStore.setPhase('reveal')
     })
 
     socket.on('turnChanged', ({ currentPlayerId }) => {
       if (gameStore.phase === 'words' && !gameStore.roundStarterId) {
         gameStore.setRoundStarter(currentPlayerId)
       }
-    
       gameStore.setCurrentTurn(currentPlayerId)
     })
 
@@ -83,14 +93,11 @@ export function useGameSocket() {
 
     socket.on('roundResult', (payload) => {
       gameStore.setLastRoundResult(payload)
-      // aquí normalmente phase será 'finished' o 'revealRound'
     })
 
     socket.on('gameFinished', ({ winner }) => {
       gameStore.setPhase('finished')
-      gameStore.setLastRoundResult({
-        winner,
-      })
+      gameStore.setLastRoundResult({ winner })
     })
 
     socket.on('roomEnded', () => {
@@ -111,10 +118,15 @@ export function useGameSocket() {
     socket.off('roundResult')
     socket.off('gameFinished')
     socket.off('roomEnded')
+
+    roomJoinedCallbacks.length = 0
+    errorCallbacks.length = 0
   })
 
   return {
     socket,
     gameStore,
+    onRoomJoined,
+    onError,
   }
 }

@@ -1,7 +1,8 @@
-import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router';
-import HomeView from '../views/HomeView.vue';
-import LobbyView from '../views/LobbyView.vue';
-import GameView from '../views/GameView.vue';
+import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
+import HomeView from '../views/HomeView.vue'
+import LobbyView from '../views/LobbyView.vue'
+import GameView from '../views/GameView.vue'
+import JoinRoomView from '../views/JoinRoomView.vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -19,11 +20,16 @@ const routes: RouteRecordRaw[] = [
     name: 'game',
     component: GameView,
   },
-];
+  {
+    path: '/join/:roomCode',
+    name: 'JoinRoom',
+    component: JoinRoomView
+  },
+]
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
-});
+})
 
-export default router;
+export default router

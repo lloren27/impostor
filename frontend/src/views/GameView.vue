@@ -13,7 +13,6 @@
     <section class="page__content">
       <section v-if="phase === 'reveal'" class="card">
         <h2>Tu rol</h2>
-
         <p v-if="myRole">
           <template v-if="myRole.isImpostor">
             <span>Eres el</span>

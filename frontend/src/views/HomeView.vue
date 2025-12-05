@@ -13,8 +13,7 @@
         <h2>Crear sala</h2>
 
         <div class="field">
-          <label for="name-create">Tu nombre</label>
-          <input id="name-create" v-model="nameCreate" placeholder="Tu nombre" />
+          <input id="name-create" v-model="nameCreate" placeholder="Introduce tu nombre" />
         </div>
 
         <button class="btn" @click="createRoom">Crear</button>
@@ -25,12 +24,10 @@
         <h2>Unirse a sala</h2>
 
         <div class="field">
-          <label for="name-join">Tu nombre</label>
-          <input id="name-join" v-model="nameJoin" placeholder="Tu nombre" />
+          <input id="name-join" v-model="nameJoin" placeholder="Introduce tu nombre" />
         </div>
 
         <div class="field">
-          <label for="room-code-join">Código de sala</label>
           <input id="room-code-join" v-model="roomCodeJoin" placeholder="Código de sala" />
         </div>
 

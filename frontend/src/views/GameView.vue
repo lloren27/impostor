@@ -34,7 +34,7 @@
           <strong>{{ roundStarterName }}</strong
           >.
         </p>
-
+        <h2 v-if="myRole?.character">Personaje {{ myRole.character }}</h2>
         <h2>Ronda de palabras (ronda {{ gameStore.currentRound }})</h2>
 
         <h3>Palabras dichas</h3>

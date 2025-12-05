@@ -21,7 +21,7 @@
     </section>
 
     <footer class="page__footer">
-      <button v-if="isHost" class="btn" @click="startGame">Empezar partida</button>
+      <button v-if="isHost" class="btn btn--secondary" @click="startGame">Empezar partida</button>
       <button v-if="isHost" class="btn" @click="copyInviteLink">Copiar enlace</button>
       <button v-if="isHost" class="btn" @click="shareByWhatsApp">Compartir por WhatsApp</button>
     </footer>

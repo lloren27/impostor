@@ -7,6 +7,8 @@
   padding: 14px 16px;
   box-shadow: $shadow-soft;
   border: 1px solid $color-border;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Listados (jugadores, rondas, votos) */

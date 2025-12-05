@@ -50,6 +50,7 @@ export function createRoom(
     words: [],
     votes: [],
     winner: null,
+    tieCandidates: null,
   };
 
   rooms.set(code, room);
@@ -321,6 +322,8 @@ export function submitVote(
   eliminatedPlayer: Player | null;
   wasImpostor: boolean | null;
   winner: "players" | "impostor" | null;
+  isTie: boolean; // NUEVO
+  tieCandidates: Player[] | null; // NUEVO (para que el front lo pinte fácil)
 } {
   const room = rooms.get(roomCode.toUpperCase());
   if (!room) throw new Error("ROOM_NOT_FOUND");
@@ -328,6 +331,17 @@ export function submitVote(
 
   const alive = room.players.filter((p) => p.alive);
   const totalAlive = alive.length;
+
+  // Validar target: debe estar vivo
+  const targetPlayer = alive.find((p) => p.id === targetId);
+  if (!targetPlayer) {
+    throw new Error("INVALID_TARGET");
+  }
+
+  // Si estamos en desempate, solo se puede votar a los empatados
+  if (room.tieCandidates && !room.tieCandidates.includes(targetId)) {
+    throw new Error("INVALID_TARGET_TIE");
+  }
 
   // No permitir votar dos veces
   const alreadyVoted = room.votes.find((v) => v.voterId === voterId);
@@ -346,23 +360,54 @@ export function submitVote(
       eliminatedPlayer: null,
       wasImpostor: null,
       winner: null,
+      isTie: false,
+      tieCandidates: null,
     };
   }
 
-  // TODOS han votado → calcular expulsado
+  // TODOS han votado → calcular resultados
   const count: Record<string, number> = {};
   room.votes.forEach((v) => {
     count[v.targetId] = (count[v.targetId] || 0) + 1;
   });
 
-  let eliminatedId = Object.keys(count).reduce((a, b) =>
-    count[a] > count[b] ? a : b
-  );
+  const entries = Object.entries(count); // [ [targetId, votos], ... ]
+  const maxVotes = Math.max(...entries.map(([, n]) => n));
 
+  const topCandidateIds = entries
+    .filter(([, n]) => n === maxVotes)
+    .map(([id]) => id);
+
+  // --- CASO EMPATE ---
+  if (topCandidateIds.length > 1) {
+    // Guardamos candidatos de desempate y limpiamos votos
+    room.tieCandidates = topCandidateIds;
+    room.votes = [];
+
+    // Seguimos en fase "voting", pero ahora solo se puede votar entre estos
+    // NO incrementamos ronda, NO eliminamos a nadie
+    return {
+      room,
+      finishedVoting: false,
+      eliminatedPlayer: null,
+      wasImpostor: null,
+      winner: null,
+      isTie: true,
+      tieCandidates: room.players.filter((p) => topCandidateIds.includes(p.id)),
+    };
+  }
+
+  // --- CASO SIN EMPATE: hay un expulsado claro ---
+  const eliminatedId = topCandidateIds[0];
   const eliminatedPlayer = room.players.find((p) => p.id === eliminatedId)!;
   eliminatedPlayer.alive = false;
 
   const wasImpostor = eliminatedPlayer.id === room.impostorId;
+
+  // Ya no hay desempate activo
+  room.tieCandidates = null;
+  // Limpiamos votos para la próxima ronda
+  room.votes = [];
 
   // Condición 1: expulsaron al impostor
   if (wasImpostor) {
@@ -375,13 +420,14 @@ export function submitVote(
       eliminatedPlayer,
       wasImpostor,
       winner: "players",
+      isTie: false,
+      tieCandidates: null,
     };
   }
 
   // Condición 2: impostor sobrevivió → ¿solo quedan 2 vivos?
   const aliveNow = room.players.filter((p) => p.alive);
   if (aliveNow.length === 2) {
-    // el impostor gana
     room.phase = "finished";
     room.winner = "impostor";
 
@@ -391,6 +437,8 @@ export function submitVote(
       eliminatedPlayer,
       wasImpostor,
       winner: "impostor",
+      isTie: false,
+      tieCandidates: null,
     };
   }
 
@@ -404,6 +452,8 @@ export function submitVote(
     eliminatedPlayer,
     wasImpostor,
     winner: null,
+    isTie: false,
+    tieCandidates: null,
   };
 }
 

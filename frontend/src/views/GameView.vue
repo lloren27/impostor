@@ -34,7 +34,12 @@
           <strong>{{ roundStarterName }}</strong
           >.
         </p>
-        <h2 v-if="myRole?.character">Personaje {{ myRole.character }}</h2>
+        <template v-if="myRole?.character">
+          <h2>Personaje {{ myRole.character }}</h2>
+        </template>
+        <template v-else>
+          <h2 style="text-align: center" class="impostor-style">IMPOSTOR</h2>
+        </template>
         <h2>Ronda de palabras (ronda {{ gameStore.currentRound }})</h2>
 
         <h3>Palabras dichas</h3>
@@ -66,15 +71,29 @@
         <h2>Votación</h2>
         <p>¿Quién crees que es el impostor?</p>
 
+        <!-- 🔸 Mensaje de EMPATE -->
+        <p v-if="isTieVoting" class="info-text info-text--warning">
+          Ha habido un empate. Volved a votar entre estos jugadores.
+        </p>
+
+        <!-- 🔸 Mensaje de que ya has votado y a quién -->
         <p v-if="gameStore.hasVoted" class="info-text">
-          Ya has votado. Espera a que termine la votación.
+          Ya has votado
+          <template v-if="selectedPlayerName">
+            : has elegido a <strong>{{ selectedPlayerName }}</strong
+            >.
+          </template>
+          Espera a que termine la votación.
         </p>
 
         <ul class="list">
           <li
-            v-for="p in gameStore.players.filter((p) => p.alive && p.id !== gameStore.me?.id)"
+            v-for="p in voteTargets"
             :key="p.id"
             class="list__item"
+            :class="{
+              'list__item--selected': gameStore.hasVoted && gameStore.myVote === p.id,
+            }"
           >
             <label class="vote-option">
               <input
@@ -152,6 +171,30 @@ const roundStarterName = computed(() => gameStore.roundStarterName)
 
 const myWord = ref('')
 
+const voteTargets = computed(() => {
+  const me = gameStore.me
+
+  const base = gameStore.players.filter((p) => p.alive && (!me || p.id !== me.id))
+
+  // si hay desempate, solo se puede votar a esos candidatos
+  if (gameStore.tieCandidates && gameStore.tieCandidates.length > 0) {
+    const ids = gameStore.tieCandidates.map((p) => p.id)
+    return base.filter((p) => ids.includes(p.id))
+  }
+
+  return base
+})
+
+// 🔹 Nombre del jugador al que he votado
+const selectedPlayerName = computed(() => {
+  if (!gameStore.myVote) return null
+  const p = gameStore.players.find((p) => p.id === gameStore.myVote)
+  return p ? p.name : null
+})
+
+// 🔹 Saber si estamos en una ronda de desempate
+const isTieVoting = computed(() => !!gameStore.tieCandidates && gameStore.tieCandidates.length > 0)
+
 function sendWord() {
   if (!myWord.value.trim()) return
   socket.emit('submitWord', {
@@ -224,6 +267,14 @@ input::placeholder {
   font-size: 0.85rem;
   color: #9ca3af;
   margin-bottom: 8px;
+  &--warning {
+    color: #b45200;
+    background: #fff3e0;
+    padding: 0.5rem 0.75rem;
+    border-radius: 4px;
+    margin-bottom: 0.75rem;
+    font-size: 0.9rem;
+  }
 }
 
 .buttons-finished {

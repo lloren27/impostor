@@ -16,6 +16,7 @@ export const useGameStore = defineStore('game', {
     myVote: null,
     hasVoted: false,
     roundStarterId: null,
+    tieCandidates: null,
   }),
   // NO MODIFICAN SOLO COMPUTAN ESA INFORMACIÓN
   getters: {
@@ -45,6 +46,7 @@ export const useGameStore = defineStore('game', {
       this.phase = payload.room.phase
       this.currentRound = payload.room.currentRound ?? 0
 
+      this.clearTieCandidates()
       this.resetVoting()
     },
     updatePlayers(players: any[]) {
@@ -92,6 +94,12 @@ export const useGameStore = defineStore('game', {
     resetVoting() {
       this.myVote = null
       this.hasVoted = false
+    },
+    setTieCandidates(players: any[] | null) {
+      this.tieCandidates = players
+    },
+    clearTieCandidates() {
+      this.tieCandidates = null
     },
   },
 })

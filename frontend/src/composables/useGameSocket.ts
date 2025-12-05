@@ -95,6 +95,15 @@ export function useGameSocket() {
       gameStore.setLastRoundResult(payload)
     })
 
+    socket.on('tieVote', ({ tieCandidates }) => {
+      // Guardamos los candidatos de desempate
+      gameStore.setTieCandidates(tieCandidates)
+      // Reseteamos el voto del jugador para que pueda volver a votar
+      gameStore.resetVoting()
+      // Aquí puedes mostrar un mensaje UI tipo:
+      // "Empate, volved a votar entre los jugadores empatados"
+    })
+
     socket.on('gameFinished', ({ winner }) => {
       gameStore.setPhase('finished')
       gameStore.setLastRoundResult({ winner })
@@ -118,6 +127,7 @@ export function useGameSocket() {
     socket.off('roundResult')
     socket.off('gameFinished')
     socket.off('roomEnded')
+    socket.off('tieVote')
 
     roomJoinedCallbacks.length = 0
     errorCallbacks.length = 0

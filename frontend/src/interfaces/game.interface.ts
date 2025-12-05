@@ -34,4 +34,5 @@ export interface GameState {
   myVote: string | null // id del jugador al que voto
   hasVoted: boolean
   roundStarterId: string | null 
+  tieCandidates: Player[] | null
 }

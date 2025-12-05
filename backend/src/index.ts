@@ -221,26 +221,42 @@ io.on("connection", (socket) => {
     try {
       const { roomCode, targetId } = payload;
       const voterId = socket.id;
-
-      const { room, finishedVoting, eliminatedPlayer, wasImpostor, winner } =
-        submitVote(roomCode, voterId, targetId);
-
+  
+      const {
+        room,
+        finishedVoting,
+        eliminatedPlayer,
+        wasImpostor,
+        winner,
+        isTie,
+        tieCandidates,
+      } = submitVote(roomCode, voterId, targetId);
+  
+      // 🔁 Si todavía no ha terminado la votación
       if (!finishedVoting) {
+        // Caso especial: EMPATE → avisamos al front
+        if (isTie && tieCandidates) {
+          io.to(room.code).emit("tieVote", {
+            tieCandidates, // lista de jugadores entre los que hay que revotar
+          });
+        }
+        // Si no es empate (simplemente faltan votos), no hace falta emitir nada extra
         return;
       }
-
+  
+      // ✅ Aquí ya ha terminado la votación (sin empate)
       io.to(room.code).emit("phaseChanged", {
         phase: room.phase,
         currentRound: room.currentRound,
       });
-
-      // Emitimos el resultado de la ronda
+  
+      // Resultado de la ronda (puede no haber ganador todavía)
       io.to(room.code).emit("roundResult", {
         eliminatedPlayer,
         wasImpostor,
         winner,
       });
-
+  
       if (room.phase === "finished") {
         io.to(room.code).emit("gameFinished", {
           winner: room.winner,
@@ -253,6 +269,7 @@ io.on("connection", (socket) => {
       });
     }
   });
+  
 
   socket.on("startNextRound", (payload: { roomCode: string }) => {
     try {

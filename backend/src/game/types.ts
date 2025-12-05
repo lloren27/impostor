@@ -40,4 +40,5 @@ export interface Room {
   words: WordEntry[];
   votes: VoteEntry[];
   winner: "players" | "impostor" | null;
+  tieCandidates: string[] | null;
 }

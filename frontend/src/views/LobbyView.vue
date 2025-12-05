@@ -2,7 +2,13 @@
   <main class="page page--lobby">
     <header class="page__header">
       <div>
-        <h1 class="page__title">Sala {{ roomCode }}</h1>
+        <div class="roomCode-container">
+          <h1 class="page__title">Sala {{ roomCode }}</h1>
+          <button class="btn-copy" @click="copyRoomCode">
+            <font-awesome-icon :icon="['far', 'clipboard']" />
+          </button>
+        </div>
+
         <p class="page__subtitle">Comparte el código con tus amigos para que se unan.</p>
       </div>
     </header>
@@ -64,6 +70,13 @@ const copyInviteLink = async () => {
   }
 }
 
+function copyRoomCode() {
+  if (navigator.clipboard && gameStore.roomCode) {
+    navigator.clipboard.writeText(gameStore.roomCode)
+    alert('Código copiado al portapapeles')
+  }
+}
+
 const shareByWhatsApp = () => {
   if (!inviteLink.value) return
 
@@ -98,6 +111,22 @@ const shareByWhatsApp = () => {
     display: flex;
     gap: 0.5rem;
     flex-wrap: wrap;
+  }
+}
+
+.roomCode-container {
+  display: flex;
+}
+
+.btn-copy {
+  background: transparent;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  color: white;
+
+  &:hover {
+    color: cadetblue;
   }
 }
 </style>

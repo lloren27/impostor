@@ -22,6 +22,15 @@ function createUniqueRoomCode(): string {
   return code;
 }
 
+// ID estable de jugador (no depende del socket.id)
+function generatePlayerId(): string {
+  return (
+    Date.now().toString(36) +
+    "-" +
+    Math.random().toString(36).slice(2, 10)
+  );
+}
+
 export function createRoom(
   hostSocketId: string,
   hostName: string
@@ -29,7 +38,8 @@ export function createRoom(
   const code = createUniqueRoomCode();
 
   const hostPlayer: Player = {
-    id: hostSocketId,
+    id: generatePlayerId(),   // <- ID estable
+    socketId: hostSocketId,   // <- socket actual
     name: hostName,
     isHost: true,
     isImpostor: false,
@@ -74,13 +84,10 @@ export function joinRoom(
     throw new Error("GAME_ALREADY_STARTED");
   }
 
-  const existing = room.players.find((p) => p.id === socketId);
-  if (existing) {
-    return { room, player: existing };
-  }
-
+  // Siempre creamos jugador nuevo. El "rejoin" se hace con rejoinRoom, no aquí.
   const player: Player = {
-    id: socketId,
+    id: generatePlayerId(),
+    socketId,
     name,
     isHost: false,
     isImpostor: false,
@@ -102,24 +109,18 @@ export function deleteRoom(roomCode: string): void {
   rooms.delete(code);
 }
 
+// Ahora NO borramos al jugador, solo marcamos su socket como desconectado.
+// Si absolutamente todos están desconectados, sí borramos la sala.
 export function removePlayer(socketId: string): void {
   for (const [code, room] of rooms.entries()) {
-    const index = room.players.findIndex((p) => p.id === socketId);
-    if (index !== -1) {
-      room.players.splice(index, 1);
+    const player = room.players.find((p) => p.socketId === socketId);
+    if (player) {
+      player.socketId = null;
 
-      // Si no queda nadie, borramos la sala
-      if (room.players.length === 0) {
+      const anyConnected = room.players.some((p) => p.socketId !== null);
+      if (!anyConnected) {
         rooms.delete(code);
-        return;
       }
-
-      // Si el que se va era el host, pasamos el host a otro jugador
-      const currentHost = room.players.find((p) => p.isHost);
-      if (!currentHost) {
-        room.players[0].isHost = true;
-      }
-
       return;
     }
   }
@@ -134,7 +135,12 @@ export function removePlayer(socketId: string): void {
  */
 export function startGame(roomCode: string): {
   room: Room;
-  roles: { playerId: string; isImpostor: boolean; character: string | null }[];
+  roles: {
+    playerId: string;          // ID estable
+    socketId: string | null;   // socket actual (para emitir yourRole)
+    isImpostor: boolean;
+    character: string | null;
+  }[];
 } {
   const room = rooms.get(roomCode.toUpperCase());
   if (!room) throw new Error("ROOM_NOT_FOUND");
@@ -150,7 +156,7 @@ export function startGame(roomCode: string): {
   const randomIndex = Math.floor(Math.random() * alivePlayers.length);
   const impostor = alivePlayers[randomIndex];
 
-  room.impostorId = impostor.id;
+  room.impostorId = impostor.id; // <- ID estable del impostor
 
   // Elegir personaje
   const characterIndex = Math.floor(Math.random() * CHARACTERS.length);
@@ -164,7 +170,8 @@ export function startGame(roomCode: string): {
     p.character = isImpostor ? null : character;
     p.alive = true;
     return {
-      playerId: p.id,
+      playerId: p.id,       // estable
+      socketId: p.socketId, // para io.to()
       isImpostor,
       character: p.character,
     };
@@ -177,7 +184,7 @@ export function startGame(roomCode: string): {
   room.votes = [];
   room.winner = null;
 
-  // Orden base de jugadores vivos (en círculo)
+  // Orden base de jugadores vivos (en círculo) por ID estable
   room.baseOrder = room.players.filter((p) => p.alive).map((p) => p.id);
   room.roundStartIndex = 0;
   room.currentTurnIndex = 0;
@@ -187,7 +194,12 @@ export function startGame(roomCode: string): {
 
 export function restartGame(roomCode: string): {
   room: Room;
-  roles: { playerId: string; isImpostor: boolean; character: string | null }[];
+  roles: {
+    playerId: string;
+    socketId: string | null;
+    isImpostor: boolean;
+    character: string | null;
+  }[];
 } {
   const code = roomCode.toUpperCase();
   const room = rooms.get(code);
@@ -217,18 +229,13 @@ export function restartGame(roomCode: string): {
 }
 
 /**
- * Prepara una nueva ronda de palabras:
- * - recalcula baseOrder solo con vivos
- * - rota roundStartIndex una posición a la derecha a partir de la segunda ronda
- * - establece currentTurnIndex y devuelve el jugador al que le toca hablar primero
+ * Prepara una nueva ronda de palabras
  */
 export function startWordsRound(roomCode: string): {
   room: Room;
   currentPlayerId: string;
 } {
-  console.log("1", roomCode);
   const room = rooms.get(roomCode.toUpperCase());
-  console.log("2", room);
   if (!room) throw new Error("ROOM_NOT_FOUND");
 
   const alive = room.players.filter((p) => p.alive);
@@ -240,6 +247,7 @@ export function startWordsRound(roomCode: string): {
   room.words = [];
   room.votes = [];
 
+  // baseOrder siempre por ID estable
   room.baseOrder = alive.map((p) => p.id);
 
   if (room.currentRound === 1) {
@@ -254,13 +262,9 @@ export function startWordsRound(roomCode: string): {
   return { room, currentPlayerId };
 }
 
-/**
- * Registra la palabra de un jugador en su turno.
- * Devuelve info para saber si seguimos la ronda o pasamos a votación.
- */
 export function submitWord(
   roomCode: string,
-  playerId: string,
+  playerId: string, // <- ID estable, NO socketId
   word: string
 ): {
   room: Room;
@@ -284,13 +288,11 @@ export function submitWord(
   const newWord = { playerId, word };
   room.words.push(newWord);
 
-  // Calcular cuántos turnos se han hecho en esta ronda
   const turnsDone =
     ((room.currentTurnIndex - room.roundStartIndex + totalAlive) % totalAlive) +
     1;
 
   if (turnsDone >= totalAlive) {
-    // Fin de ronda → pasamos a votación
     room.phase = "voting";
     return {
       room,
@@ -300,7 +302,6 @@ export function submitWord(
     };
   }
 
-  // Avanzar turno al siguiente jugador
   room.currentTurnIndex = (room.currentTurnIndex + 1) % totalAlive;
   const nextPlayerId = room.baseOrder[room.currentTurnIndex];
 
@@ -314,16 +315,16 @@ export function submitWord(
 
 export function submitVote(
   roomCode: string,
-  voterId: string,
-  targetId: string
+  voterId: string,  // <- ID estable
+  targetId: string  // <- ID estable del objetivo
 ): {
   room: Room;
   finishedVoting: boolean;
   eliminatedPlayer: Player | null;
   wasImpostor: boolean | null;
   winner: "players" | "impostor" | null;
-  isTie: boolean; // NUEVO
-  tieCandidates: Player[] | null; // NUEVO (para que el front lo pinte fácil)
+  isTie: boolean;
+  tieCandidates: Player[] | null;
 } {
   const room = rooms.get(roomCode.toUpperCase());
   if (!room) throw new Error("ROOM_NOT_FOUND");
@@ -332,27 +333,22 @@ export function submitVote(
   const alive = room.players.filter((p) => p.alive);
   const totalAlive = alive.length;
 
-  // Validar target: debe estar vivo
   const targetPlayer = alive.find((p) => p.id === targetId);
   if (!targetPlayer) {
     throw new Error("INVALID_TARGET");
   }
 
-  // Si estamos en desempate, solo se puede votar a los empatados
   if (room.tieCandidates && !room.tieCandidates.includes(targetId)) {
     throw new Error("INVALID_TARGET_TIE");
   }
 
-  // No permitir votar dos veces
   const alreadyVoted = room.votes.find((v) => v.voterId === voterId);
   if (alreadyVoted) {
     throw new Error("ALREADY_VOTED");
   }
 
-  // Registrar voto
   room.votes.push({ voterId, targetId });
 
-  // Si NO han votado todos → todavía no termina la fase
   if (room.votes.length < totalAlive) {
     return {
       room,
@@ -365,27 +361,22 @@ export function submitVote(
     };
   }
 
-  // TODOS han votado → calcular resultados
   const count: Record<string, number> = {};
   room.votes.forEach((v) => {
     count[v.targetId] = (count[v.targetId] || 0) + 1;
   });
 
-  const entries = Object.entries(count); // [ [targetId, votos], ... ]
+  const entries = Object.entries(count);
   const maxVotes = Math.max(...entries.map(([, n]) => n));
 
   const topCandidateIds = entries
     .filter(([, n]) => n === maxVotes)
     .map(([id]) => id);
 
-  // --- CASO EMPATE ---
   if (topCandidateIds.length > 1) {
-    // Guardamos candidatos de desempate y limpiamos votos
     room.tieCandidates = topCandidateIds;
     room.votes = [];
 
-    // Seguimos en fase "voting", pero ahora solo se puede votar entre estos
-    // NO incrementamos ronda, NO eliminamos a nadie
     return {
       room,
       finishedVoting: false,
@@ -397,19 +388,15 @@ export function submitVote(
     };
   }
 
-  // --- CASO SIN EMPATE: hay un expulsado claro ---
   const eliminatedId = topCandidateIds[0];
   const eliminatedPlayer = room.players.find((p) => p.id === eliminatedId)!;
   eliminatedPlayer.alive = false;
 
   const wasImpostor = eliminatedPlayer.id === room.impostorId;
 
-  // Ya no hay desempate activo
   room.tieCandidates = null;
-  // Limpiamos votos para la próxima ronda
   room.votes = [];
 
-  // Condición 1: expulsaron al impostor
   if (wasImpostor) {
     room.phase = "finished";
     room.winner = "players";
@@ -425,7 +412,6 @@ export function submitVote(
     };
   }
 
-  // Condición 2: impostor sobrevivió → ¿solo quedan 2 vivos?
   const aliveNow = room.players.filter((p) => p.alive);
   if (aliveNow.length === 2) {
     room.phase = "finished";
@@ -442,7 +428,6 @@ export function submitVote(
     };
   }
 
-  // Condición 3: no termina la partida → empezar una nueva ronda
   room.currentRound += 1;
   room.phase = "revealRound";
 
@@ -465,7 +450,6 @@ export function startNextRound(roomCode: string): {
   if (!room) throw new Error("ROOM_NOT_FOUND");
   if (room.phase !== "revealRound") throw new Error("NOT_REVEAL_ROUND");
 
-  // Usa la misma lógica que startWordsRound
   room.phase = "words";
   room.words = [];
   room.votes = [];
@@ -473,7 +457,6 @@ export function startNextRound(roomCode: string): {
   const alive = room.players.filter((p) => p.alive);
   room.baseOrder = alive.map((p) => p.id);
 
-  // Rotar a la derecha según la ronda
   room.roundStartIndex = (room.roundStartIndex + 1) % room.baseOrder.length;
   room.currentTurnIndex = room.roundStartIndex;
 

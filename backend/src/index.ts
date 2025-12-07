@@ -34,10 +34,10 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-// src/index.ts
+// Endpoint para que el frontend compruebe si existe una sala
 app.get("/rooms/:code", (req, res) => {
   const code = req.params.code.toUpperCase();
-  const room = getRoom(code); // función de roomsManager
+  const room = getRoom(code);
 
   if (!room) {
     return res.status(404).json({ exists: false });
@@ -60,6 +60,56 @@ io.on("connection", (socket) => {
     console.log("[onAny]", event, "from", socket.id, "payload:", args[0]);
   });
 
+  /**
+   * REJOIN: el cliente nos manda roomCode + playerId (estable).
+   * Nosotros:
+   * - buscamos la sala
+   * - buscamos el player por su id (estable)
+   * - actualizamos su socketId
+   * - lo volvemos a unir a la room de Socket.IO
+   * - le mandamos un roomJoined con el mismo formato que create/join
+   */
+  socket.on(
+    "rejoinRoom",
+    (payload: { roomCode: string; playerId: string; name?: string }) => {
+      const { roomCode, playerId } = payload;
+      const room = getRoom(roomCode);
+
+      if (!room) {
+        socket.emit("errorMessage", {
+          message: "La sala ya no existe. Crea una nueva.",
+        });
+        return;
+      }
+
+      const player = room.players.find((p) => p.id === playerId);
+
+      if (!player) {
+        socket.emit("errorMessage", {
+          message: "No se ha encontrado tu jugador en la sala.",
+        });
+        return;
+      }
+
+      // Actualizamos socketId y lo volvemos a meter en la room
+      player.socketId = socket.id;
+      socket.join(room.code);
+
+      // Enviamos al jugador TODO el estado de la sala
+      socket.emit("roomJoined", {
+        roomCode: room.code,
+        playerId: player.id,
+        player,
+        room,
+      });
+
+      // Notificamos al resto que este jugador ha vuelto
+      socket.to(room.code).emit("playersUpdated", {
+        players: room.players,
+      });
+    }
+  );
+
   socket.on("createRoom", (payload: { name: string }) => {
     try {
       const { name } = payload;
@@ -70,6 +120,7 @@ io.on("connection", (socket) => {
       // Enviamos al creador su info de sala
       socket.emit("roomJoined", {
         roomCode: room.code,
+        playerId: player.id, // id estable
         player,
         room,
       });
@@ -93,6 +144,7 @@ io.on("connection", (socket) => {
 
       socket.emit("roomJoined", {
         roomCode: room.code,
+        playerId: player.id, // id estable
         player,
         room,
       });
@@ -116,26 +168,30 @@ io.on("connection", (socket) => {
       const room = getRoom(roomCode);
       if (!room) throw new Error("ROOM_NOT_FOUND");
 
-      const player = room.players.find((p) => p.id === socket.id);
+      // Host = jugador cuyo socketId coincide con este socket
+      const player = room.players.find((p) => p.socketId === socket.id);
       if (!player || !player.isHost) {
         throw new Error("ONLY_HOST_CAN_START");
       }
 
       const { room: updatedRoom, roles } = startGame(roomCode);
 
+      // Enviamos rol individual a cada jugador por su socketId
       roles.forEach((r) => {
-        io.to(r.playerId).emit("yourRole", {
+        if (!r.socketId) return; // por si alguien está desconectado
+        io.to(r.socketId).emit("yourRole", {
           isImpostor: r.isImpostor,
           character: r.character,
           roomCode: updatedRoom.code,
         });
       });
 
+      // Estado general de partida
       io.to(updatedRoom.code).emit("gameStarted", {
         roomCode: updatedRoom.code,
         phase: updatedRoom.phase,
         players: updatedRoom.players.map((p) => ({
-          id: p.id,
+          id: p.id, // id estable
           name: p.name,
           alive: p.alive,
           isHost: p.isHost,
@@ -155,7 +211,7 @@ io.on("connection", (socket) => {
       const room = getRoom(roomCode);
       if (!room) throw new Error("ROOM_NOT_FOUND");
 
-      const player = room.players.find((p) => p.id === socket.id);
+      const player = room.players.find((p) => p.socketId === socket.id);
       if (!player || !player.isHost) {
         throw new Error("ONLY_HOST_CAN_START_ROUND");
       }
@@ -181,14 +237,18 @@ io.on("connection", (socket) => {
   socket.on("submitWord", (payload: { roomCode: string; word: string }) => {
     try {
       const { roomCode, word } = payload;
-      const playerId = socket.id;
+      const room = getRoom(roomCode);
+      if (!room) throw new Error("ROOM_NOT_FOUND");
+
+      const player = room.players.find((p) => p.socketId === socket.id);
+      if (!player) throw new Error("PLAYER_NOT_FOUND");
 
       const {
         room: updatedRoom,
         finishedRound,
         currentPlayerId,
         newWord,
-      } = submitWord(roomCode, playerId, word);
+      } = submitWord(roomCode, player.id, word); // usamos id estable
 
       // Emitimos la nueva palabra a todos
       io.to(updatedRoom.code).emit("wordAdded", {
@@ -220,46 +280,47 @@ io.on("connection", (socket) => {
   socket.on("submitVote", (payload: { roomCode: string; targetId: string }) => {
     try {
       const { roomCode, targetId } = payload;
-      const voterId = socket.id;
-  
+      const room = getRoom(roomCode);
+      if (!room) throw new Error("ROOM_NOT_FOUND");
+
+      const voter = room.players.find((p) => p.socketId === socket.id);
+      if (!voter) throw new Error("PLAYER_NOT_FOUND");
+
       const {
-        room,
+        room: updatedRoom,
         finishedVoting,
         eliminatedPlayer,
         wasImpostor,
         winner,
         isTie,
         tieCandidates,
-      } = submitVote(roomCode, voterId, targetId);
-  
-      // 🔁 Si todavía no ha terminado la votación
+      } = submitVote(roomCode, voter.id, targetId); // voter.id = id estable
+
       if (!finishedVoting) {
         // Caso especial: EMPATE → avisamos al front
         if (isTie && tieCandidates) {
-          io.to(room.code).emit("tieVote", {
-            tieCandidates, // lista de jugadores entre los que hay que revotar
+          io.to(updatedRoom.code).emit("tieVote", {
+            tieCandidates,
           });
         }
-        // Si no es empate (simplemente faltan votos), no hace falta emitir nada extra
         return;
       }
-  
-      // ✅ Aquí ya ha terminado la votación (sin empate)
-      io.to(room.code).emit("phaseChanged", {
-        phase: room.phase,
-        currentRound: room.currentRound,
+
+      // Aquí ya ha terminado la votación (sin empate o tras desempate)
+      io.to(updatedRoom.code).emit("phaseChanged", {
+        phase: updatedRoom.phase,
+        currentRound: updatedRoom.currentRound,
       });
-  
-      // Resultado de la ronda (puede no haber ganador todavía)
-      io.to(room.code).emit("roundResult", {
+
+      io.to(updatedRoom.code).emit("roundResult", {
         eliminatedPlayer,
         wasImpostor,
         winner,
       });
-  
-      if (room.phase === "finished") {
-        io.to(room.code).emit("gameFinished", {
-          winner: room.winner,
+
+      if (updatedRoom.phase === "finished") {
+        io.to(updatedRoom.code).emit("gameFinished", {
+          winner: updatedRoom.winner,
         });
       }
     } catch (err: any) {
@@ -269,7 +330,6 @@ io.on("connection", (socket) => {
       });
     }
   });
-  
 
   socket.on("startNextRound", (payload: { roomCode: string }) => {
     try {
@@ -303,7 +363,7 @@ io.on("connection", (socket) => {
 
       if (!room) throw new Error("ROOM_NOT_FOUND");
 
-      const player = room.players.find((p) => p.id === socket.id);
+      const player = room.players.find((p) => p.socketId === socket.id);
       console.log("[restartGame] player found:", player);
 
       if (!player || !player.isHost) {
@@ -324,7 +384,8 @@ io.on("connection", (socket) => {
       });
 
       roles.forEach((r) => {
-        io.to(r.playerId).emit("yourRole", {
+        if (!r.socketId) return;
+        io.to(r.socketId).emit("yourRole", {
           isImpostor: r.isImpostor,
           character: r.character,
           roomCode: updatedRoom.code,
@@ -359,7 +420,7 @@ io.on("connection", (socket) => {
 
       if (!room) throw new Error("ROOM_NOT_FOUND");
 
-      const player = room.players.find((p) => p.id === socket.id);
+      const player = room.players.find((p) => p.socketId === socket.id);
       console.log("[endGame] player found:", player);
 
       if (!player || !player.isHost) {
@@ -378,7 +439,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Desconexión
+  // Desconexión: delegamos en roomsManager (que ahora solo marca socketId = null)
   socket.on("disconnect", () => {
     removePlayer(socket.id);
   });

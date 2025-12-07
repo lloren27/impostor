@@ -35,4 +35,5 @@ export interface GameState {
   hasVoted: boolean
   roundStarterId: string | null 
   tieCandidates: Player[] | null
+  isReconnecting: boolean
 }

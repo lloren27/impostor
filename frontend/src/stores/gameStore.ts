@@ -17,6 +17,7 @@ export const useGameStore = defineStore('game', {
     hasVoted: false,
     roundStarterId: null,
     tieCandidates: null,
+    isReconnecting: false,
   }),
   // NO MODIFICAN SOLO COMPUTAN ESA INFORMACIÓN
   getters: {
@@ -34,6 +35,9 @@ export const useGameStore = defineStore('game', {
   },
   // ACTIONS IMPLICAN ACTUALIZACIÓN
   actions: {
+    setReconnecting(value: boolean) {
+      this.isReconnecting = value
+    },
     setRoomJoined(payload: any) {
       this.roomCode = payload.roomCode
       this.me = payload.player
@@ -45,6 +49,14 @@ export const useGameStore = defineStore('game', {
       }))
       this.phase = payload.room.phase
       this.currentRound = payload.room.currentRound ?? 0
+
+      localStorage.setItem(
+        'impostor-session',
+        JSON.stringify({
+          roomCode: payload.roomCode,
+          playerId: payload.playerId ?? payload.player.id,
+        }),
+      )
 
       this.clearTieCandidates()
       this.resetVoting()

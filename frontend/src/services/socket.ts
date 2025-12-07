@@ -1,9 +1,11 @@
 // src/services/socket.ts
-import { io, Socket } from 'socket.io-client';
+import { io, Socket } from 'socket.io-client'
 
-const URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000';
+const URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000'
 
 export const socket: Socket = io(URL, {
   transports: ['polling', 'websocket'],
   autoConnect: true,
-});
+  reconnection: true,
+  reconnectionAttempts: Infinity,
+})

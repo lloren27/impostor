@@ -9,7 +9,8 @@ export type GamePhase =
   | "finished";
 
 export interface Player {
-  id: string; // socket.id
+  id: string; // ID estable del jugador (para la lógica del juego)
+  socketId: string | null; // socket actual (cambia en cada reconexión)
   name: string;
   isHost: boolean;
   isImpostor: boolean;

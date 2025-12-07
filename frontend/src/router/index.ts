@@ -3,6 +3,7 @@ import HomeView from '../views/HomeView.vue'
 import LobbyView from '../views/LobbyView.vue'
 import GameView from '../views/GameView.vue'
 import JoinRoomView from '../views/JoinRoomView.vue'
+import NotFound from '../views/NotFound.vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -25,6 +26,11 @@ const routes: RouteRecordRaw[] = [
     name: 'JoinRoom',
     component: JoinRoomView
   },
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'NotFound',
+    component: NotFound
+  }
 ]
 
 const router = createRouter({

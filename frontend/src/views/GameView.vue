@@ -153,11 +153,13 @@
       </section>
     </section>
   </main>
+  <FullScreenLoader v-if="gameStore.isReconnecting" text="Reconectando con la sala..." />
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useGameSocket } from '@/composables/useGameSocket'
+import FullScreenLoader from '@/components/ui/FullScreenLoader.vue'
 
 const { socket, gameStore } = useGameSocket()
 const roomCode = computed(() => gameStore.roomCode)

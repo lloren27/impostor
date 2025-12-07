@@ -20,8 +20,23 @@ export function useGameSocket() {
     errorCallbacks.push(cb)
   }
 
+  function handleConnect() {
+    const saved = localStorage.getItem('impostor-session')
+    if (!saved) return
+
+    const { roomCode, playerId } = JSON.parse(saved)
+
+    if (!roomCode || !playerId) return
+    gameStore.setReconnecting(true)
+
+    socket.emit('rejoinRoom', { roomCode, playerId })
+  }
+
   onMounted(() => {
+    socket.on('connect', handleConnect)
+
     socket.on('roomJoined', (payload) => {
+      gameStore.setReconnecting(false)
       gameStore.setRoomJoined(payload)
       roomJoinedCallbacks.forEach((cb) => cb(payload))
     })
@@ -31,8 +46,13 @@ export function useGameSocket() {
     })
 
     socket.on('errorMessage', ({ message }) => {
+      gameStore.setReconnecting(false)
       alert(message)
       errorCallbacks.forEach((cb) => cb())
+      if (message.includes('no existe') || message.includes('not found')) {
+        router.push({ name: 'NotFound' })
+        return
+      }
     })
 
     socket.on(
@@ -116,6 +136,7 @@ export function useGameSocket() {
   })
 
   onUnmounted(() => {
+    socket.off('connect', handleConnect)
     socket.off('roomJoined')
     socket.off('playersUpdated')
     socket.off('errorMessage')

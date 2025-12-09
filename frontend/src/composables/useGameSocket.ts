@@ -4,9 +4,11 @@ import router from '@/router'
 import { socket } from '@/services/socket'
 import { useGameStore } from '@/stores/gameStore'
 import { GamePhase } from '@/interfaces/game.interface'
+import { useUiStore } from '@/stores/uiStore'
 
 export function useGameSocket() {
   const gameStore = useGameStore()
+  const uiStore = useUiStore()
 
   // ahora los callbacks reciben el payload
   const roomJoinedCallbacks: Array<(payload: any) => void> = []
@@ -47,7 +49,7 @@ export function useGameSocket() {
 
     socket.on('errorMessage', ({ message }) => {
       gameStore.setReconnecting(false)
-      alert(message)
+      uiStore.showInfo(message, 'Error')
       errorCallbacks.forEach((cb) => cb())
       if (message.includes('no existe') || message.includes('not found')) {
         router.push({ name: 'NotFound' })

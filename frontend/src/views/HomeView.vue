@@ -39,6 +39,7 @@
       </section>
     </section>
   </main>
+  <FullScreenLoader v-if="loading" text="Entrando en la sala..." />
 </template>
 
 <script setup lang="ts">
@@ -46,6 +47,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { socket } from '@/services/socket'
 import { useGameStore } from '@/stores/gameStore'
+import FullScreenLoader from '@/components/ui/FullScreenLoader.vue'
 
 const router = useRouter()
 const gameStore = useGameStore()
@@ -54,11 +56,13 @@ const nameCreate = ref('')
 const nameJoin = ref('')
 const roomCodeJoin = ref('')
 const errorMessage = ref<string | null>(null)
+const loading = ref(false)
 
 function createRoom() {
   if (!nameCreate.value.trim()) return
   socket.emit('createRoom', { name: nameCreate.value.trim() })
   socket.once('roomJoined', (payload) => {
+    loading.value = true
     gameStore.setRoomJoined(payload)
     router.push({ name: 'lobby', params: { code: payload.roomCode } })
   })
@@ -94,8 +98,8 @@ async function joinRoom() {
       errorMessage.value = 'La sala no existe. Revisa el código.'
       return
     }
+    loading.value = true
 
-    // 2. Conectarse por socket.io
     socket.emit('joinRoom', {
       roomCode: code,
       name: nameJoin.value.trim(),

@@ -60,9 +60,12 @@ const loading = ref(false)
 
 function createRoom() {
   if (!nameCreate.value.trim()) return
+
+  errorMessage.value = null
+  loading.value = true
+
   socket.emit('createRoom', { name: nameCreate.value.trim() })
   socket.once('roomJoined', (payload) => {
-    loading.value = true
     gameStore.setRoomJoined(payload)
     router.push({ name: 'lobby', params: { code: payload.roomCode } })
   })
@@ -80,25 +83,25 @@ async function joinRoom() {
     const code = roomCodeJoin.value.toUpperCase()
     const baseUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000'
 
-    // 1. Comprobamos si la sala existe
     const res = await fetch(`${baseUrl}/rooms/${code}`)
 
-    // Si el backend responde 404, lo tratamos aquí
     if (!res.ok) {
       if (res.status === 404) {
         errorMessage.value = 'La sala no existe. Revisa el código.'
-        return
+      } else {
+        errorMessage.value = 'Error conectando con el servidor.'
       }
-      throw new Error(`HTTP ${res.status}`)
+      loading.value = false
+      return
     }
 
     const data = await res.json()
 
     if (!data.exists) {
       errorMessage.value = 'La sala no existe. Revisa el código.'
+      loading.value = false
       return
     }
-    loading.value = true
 
     socket.emit('joinRoom', {
       roomCode: code,
@@ -112,6 +115,7 @@ async function joinRoom() {
   } catch (err) {
     console.error(err)
     errorMessage.value = 'Error conectando con el servidor.'
+    loading.value = false
   }
 }
 </script>

@@ -1,6 +1,6 @@
 @use './variables' as *;
+@use './fonts';
 
-/* Tarjeta reutilizable para bloques de contenido */
 .card {
   background: $color-bg-card;
   border-radius: $radius-lg;
@@ -40,7 +40,11 @@
   background: $color-primary;
   box-shadow: $shadow-soft;
   cursor: pointer;
-  transition: transform 0.1s ease, box-shadow 0.1s ease, background 0.1s ease;
+  transition:
+    transform 0.1s ease,
+    box-shadow 0.1s ease,
+    background 0.1s ease;
+  font-family: $font-family-base;
 }
 
 .btn:active {

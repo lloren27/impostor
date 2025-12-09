@@ -69,6 +69,15 @@
       <!-- FASE VOTING: votación -->
       <section v-else-if="gameStore.phase === 'voting'" class="card">
         <h2>Votación</h2>
+
+        <h3>Palabras dichas</h3>
+        <ul class="list">
+          <li v-for="w in words" :key="w.playerId + w.word" class="list__item">
+            <span> {{ players.find((p) => p.id === w.playerId)?.name || '??' }}: </span>
+            <span>{{ w.word }}</span>
+          </li>
+        </ul>
+
         <p>¿Quién crees que es el impostor?</p>
 
         <!-- 🔸 Mensaje de EMPATE -->

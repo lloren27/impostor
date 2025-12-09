@@ -38,10 +38,12 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useGameSocket } from '@/composables/useGameSocket'
-import { socket } from '@/services/socket'
+
+import { useUiStore } from '@/stores/uiStore'
 
 const route = useRoute()
-const { gameStore } = useGameSocket()
+const { socket, gameStore } = useGameSocket()
+const uiStore = useUiStore()
 
 const roomCode = computed(() => route.params.code as string)
 
@@ -62,7 +64,7 @@ const copyInviteLink = async () => {
   if (!inviteLink.value) return
   try {
     await navigator.clipboard.writeText(inviteLink.value)
-    alert('Enlace copiado al portapapeles')
+    uiStore.showInfo('Enlace copiado al portapapeles', 'Invitación')
   } catch (err) {
     console.error(err)
     // Fallback si el navegador no soporta clipboard
@@ -73,7 +75,7 @@ const copyInviteLink = async () => {
 function copyRoomCode() {
   if (navigator.clipboard && gameStore.roomCode) {
     navigator.clipboard.writeText(gameStore.roomCode)
-    alert('Código copiado al portapapeles')
+    uiStore.showInfo('Código copiado al portapapeles', 'Código de sala')
   }
 }
 
@@ -83,7 +85,6 @@ const shareByWhatsApp = () => {
   const message = `Únete a mi partida de Impostor con este enlace: ${inviteLink.value}`
   const encoded = encodeURIComponent(message)
 
-  // Funciona tanto en móvil como en escritorio (abre WhatsApp Web si toca)
   const url = `https://wa.me/?text=${encoded}`
 
   window.open(url, '_blank')

@@ -162,11 +162,14 @@
       </section>
     </section>
   </main>
-  <FullScreenLoader v-if="gameStore.isReconnecting" text="Reconectando con la sala..." />
+  <FullScreenLoader
+    v-if="gameStore.isReconnecting || isPhaseChanging"
+    :text="gameStore.isReconnecting ? 'Reconectando con la sala...' : 'Cargando...'"
+  />
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useGameSocket } from '@/composables/useGameSocket'
 import FullScreenLoader from '@/components/ui/FullScreenLoader.vue'
 
@@ -179,6 +182,7 @@ const words = computed(() => gameStore.words)
 const isMyTurn = computed(() => gameStore.isMyTurn)
 const currentPlayerId = computed(() => gameStore.currentPlayerId)
 const roundStarterName = computed(() => gameStore.roundStarterName)
+const isPhaseChanging = ref(false)
 
 const myWord = ref('')
 
@@ -220,6 +224,8 @@ function submitVote() {
   if (!gameStore.myVote) return
   if (!gameStore.me || !gameStore.roomCode) return
 
+  isPhaseChanging.value = true
+
   socket.emit('submitVote', {
     roomCode: gameStore.roomCode,
     targetId: gameStore.myVote,
@@ -229,20 +235,30 @@ function submitVote() {
 }
 
 function startWordsRound() {
+  isPhaseChanging.value = true
   socket.emit('startWordsRound', { roomCode: roomCode.value })
 }
 
 function startNextRound() {
+  isPhaseChanging.value = true
   socket.emit('startNextRound', { roomCode: roomCode.value })
 }
 
 function restartGame() {
+  isPhaseChanging.value = true
   socket.emit('restartGame', { roomCode: roomCode.value })
 }
 
 function finishGame() {
+  isPhaseChanging.value = true
   socket.emit('endGame', { roomCode: roomCode.value })
 }
+
+watch(phase, (newPhase, oldPhase) => {
+  if (oldPhase && newPhase !== oldPhase) {
+    isPhaseChanging.value = false
+  }
+})
 </script>
 
 <style scoped>

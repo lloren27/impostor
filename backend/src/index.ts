@@ -19,12 +19,19 @@ import {
 
 const PORT = process.env.PORT || 4000;
 
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://impostor-frontend.onrender.com",
+  "https://eljuegodelimpostor.es",
+  "https://www.eljuegodelimpostor.es",
+];
+
 const app = express();
 
 // Middleware
 app.use(
   cors({
-    origin: ["http://localhost:5173", "https://impostor-frontend.onrender.com"],
+    origin: allowedOrigins,
     methods: ["GET", "POST"],
   })
 );
@@ -50,8 +57,14 @@ const server = http.createServer(app);
 
 const io = new SocketIOServer(server, {
   cors: {
-    origin: ["http://localhost:5173", "https://impostor-frontend.onrender.com"],
-    methods: ["GET", "POST"],
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
   },
 });
 

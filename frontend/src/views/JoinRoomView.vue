@@ -1,7 +1,7 @@
 <template>
   <main class="page page--join">
     <div class="page__content">
-      <h1>Te han invitado a una sala</h1>
+      <h1 class="join-title">Te han invitado a una sala</h1>
       <h1 class="page__title">
         Sala:
         {{ roomCode }}
@@ -90,5 +90,9 @@ input {
   margin-top: 0.75rem;
   font-size: 0.8rem;
   color: #666;
+}
+
+.join-title {
+  text-align: center;
 }
 </style>

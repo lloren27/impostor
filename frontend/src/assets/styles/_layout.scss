@@ -33,13 +33,14 @@ body {
 .page__title {
   font-size: 1.8rem;
   font-weight: 700;
+  text-align: center;
 }
 
 /** Cabecera de página (título, info partida, etc.) */
 .page__header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 12px;
 }
 

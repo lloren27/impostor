@@ -3,6 +3,7 @@ import { CHARACTERS } from "./characters";
 import { Player, Room } from "./types";
 
 const rooms: Map<string, Room> = new Map();
+const roomDeletionTimers: Map<string, NodeJS.Timeout> = new Map();
 
 function generateRoomCode(): string {
   const letters = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // sin I ni O para evitar confusión
@@ -22,12 +23,9 @@ function createUniqueRoomCode(): string {
   return code;
 }
 
-// ID estable de jugador (no depende del socket.id)
 function generatePlayerId(): string {
   return (
-    Date.now().toString(36) +
-    "-" +
-    Math.random().toString(36).slice(2, 10)
+    Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10)
   );
 }
 
@@ -36,10 +34,11 @@ export function createRoom(
   hostName: string
 ): { room: Room; player: Player } {
   const code = createUniqueRoomCode();
+  cancelRoomDeletion(code);
 
   const hostPlayer: Player = {
-    id: generatePlayerId(),   // <- ID estable
-    socketId: hostSocketId,   // <- socket actual
+    id: generatePlayerId(),
+    socketId: hostSocketId,
     name: hostName,
     isHost: true,
     isImpostor: false,
@@ -74,6 +73,7 @@ export function joinRoom(
   name: string
 ): { room: Room; player: Player } {
   const code = roomCode.toUpperCase();
+  cancelRoomDeletion(code);
   const room = rooms.get(code);
 
   if (!room) {
@@ -119,7 +119,7 @@ export function removePlayer(socketId: string): void {
 
       const anyConnected = room.players.some((p) => p.socketId !== null);
       if (!anyConnected) {
-        rooms.delete(code);
+        scheduleRoomDeletion(code, 10 * 60 * 1000); // 10 min
       }
       return;
     }
@@ -136,8 +136,8 @@ export function removePlayer(socketId: string): void {
 export function startGame(roomCode: string): {
   room: Room;
   roles: {
-    playerId: string;          // ID estable
-    socketId: string | null;   // socket actual (para emitir yourRole)
+    playerId: string; // ID estable
+    socketId: string | null; // socket actual (para emitir yourRole)
     isImpostor: boolean;
     character: string | null;
   }[];
@@ -170,7 +170,7 @@ export function startGame(roomCode: string): {
     p.character = isImpostor ? null : character;
     p.alive = true;
     return {
-      playerId: p.id,       // estable
+      playerId: p.id, // estable
       socketId: p.socketId, // para io.to()
       isImpostor,
       character: p.character,
@@ -315,8 +315,8 @@ export function submitWord(
 
 export function submitVote(
   roomCode: string,
-  voterId: string,  // <- ID estable
-  targetId: string  // <- ID estable del objetivo
+  voterId: string, // <- ID estable
+  targetId: string // <- ID estable del objetivo
 ): {
   room: Room;
   finishedVoting: boolean;
@@ -466,4 +466,21 @@ export function startNextRound(roomCode: string): {
     room,
     currentPlayerId,
   };
+}
+
+export function scheduleRoomDeletion(code: string, ms = 10 * 60 * 1000) {
+  cancelRoomDeletion(code);
+  const timer = setTimeout(() => {
+    rooms.delete(code);
+    roomDeletionTimers.delete(code);
+    console.log(`[rooms] Deleted inactive room ${code}`);
+  }, ms);
+
+  roomDeletionTimers.set(code, timer);
+}
+
+export function cancelRoomDeletion(code: string) {
+  const t = roomDeletionTimers.get(code);
+  if (t) clearTimeout(t);
+  roomDeletionTimers.delete(code);
 }

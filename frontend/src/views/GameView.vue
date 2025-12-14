@@ -214,6 +214,7 @@ function sendWord() {
   if (!myWord.value.trim()) return
   socket.emit('submitWord', {
     roomCode: gameStore.roomCode,
+    playerId: gameStore.me.id,
     word: myWord.value.trim(),
   })
   myWord.value = ''
@@ -228,6 +229,7 @@ function submitVote() {
 
   socket.emit('submitVote', {
     roomCode: gameStore.roomCode,
+    voterId: gameStore.me.id,
     targetId: gameStore.myVote,
   })
 

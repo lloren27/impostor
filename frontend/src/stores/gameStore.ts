@@ -5,6 +5,7 @@ import { defineStore } from 'pinia'
 export const useGameStore = defineStore('game', {
   state: (): GameState => ({
     roomCode: null,
+    playerId: null as string | null,
     me: null,
     phase: 'lobby',
     currentRound: 0,
@@ -37,6 +38,9 @@ export const useGameStore = defineStore('game', {
   actions: {
     setReconnecting(value: boolean) {
       this.isReconnecting = value
+    },
+    setPlayerId(id: string) {
+      this.playerId = id
     },
     setRoomJoined(payload: any) {
       this.roomCode = payload.roomCode

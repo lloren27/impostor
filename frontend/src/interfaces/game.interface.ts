@@ -21,6 +21,7 @@ export interface RoundResult {
 export interface GameState {
   roomCode: string | null
   me: Player | null
+  playerId: string | null,
   phase: GamePhase
   currentRound: number
   players: Player[]

@@ -40,6 +40,8 @@ export function useGameSocket() {
     socket.on('roomJoined', (payload) => {
       gameStore.setReconnecting(false)
       gameStore.setRoomJoined(payload)
+      gameStore.setPlayerId(payload.playerId) 
+
       roomJoinedCallbacks.forEach((cb) => cb(payload))
     })
 

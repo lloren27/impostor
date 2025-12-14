@@ -1,14 +1,19 @@
-// src/composables/useGameSocket.ts
 import { onMounted, onUnmounted } from 'vue'
 import router from '@/router'
 import { socket } from '@/services/socket'
 import { useGameStore } from '@/stores/gameStore'
 import { GamePhase } from '@/interfaces/game.interface'
 import { useUiStore } from '@/stores/uiStore'
+import { i18n } from '@/i18n'
 
 export function useGameSocket() {
   const gameStore = useGameStore()
   const uiStore = useUiStore()
+
+  function translateBackendError(code: string) {
+    const key = `errors.${code}`
+    return i18n.global.te(key) ? i18n.global.t(key) : code
+  }
 
   // ahora los callbacks reciben el payload
   const roomJoinedCallbacks: Array<(payload: any) => void> = []
@@ -40,7 +45,7 @@ export function useGameSocket() {
     socket.on('roomJoined', (payload) => {
       gameStore.setReconnecting(false)
       gameStore.setRoomJoined(payload)
-      gameStore.setPlayerId(payload.playerId) 
+      gameStore.setPlayerId(payload.playerId)
 
       roomJoinedCallbacks.forEach((cb) => cb(payload))
     })
@@ -49,14 +54,22 @@ export function useGameSocket() {
       gameStore.updatePlayers(players)
     })
 
-    socket.on('errorMessage', ({ message }) => {
+    socket.on('errorMessage', ({ code, message }) => {
       gameStore.setReconnecting(false)
-      uiStore.showInfo(message, 'Error')
+
+      const errorCode = code ?? 'UNKNOWN'
+      const translated = translateBackendError(errorCode)
+
+      uiStore.showInfo(translated, i18n.global.t('common.errorTitle'))
+
       errorCallbacks.forEach((cb) => cb())
-      if (message.includes('no existe') || message.includes('not found')) {
+
+      if (errorCode === 'ROOM_NOT_FOUND') {
         router.push({ name: 'NotFound' })
-        return
       }
+
+      // (opcional) para debug:
+      // if (!code && message) console.warn('[backend error message]', message)
     })
 
     socket.on(
@@ -100,7 +113,6 @@ export function useGameSocket() {
 
     socket.on('yourRole', ({ isImpostor, character }) => {
       gameStore.setMyRole(isImpostor, character)
-      // pasamos a fase reveal en el cliente si queremos
       gameStore.setPhase('reveal')
     })
 
@@ -120,12 +132,10 @@ export function useGameSocket() {
     })
 
     socket.on('tieVote', ({ tieCandidates }) => {
-      // Guardamos los candidatos de desempate
       gameStore.setTieCandidates(tieCandidates)
-      // Reseteamos el voto del jugador para que pueda volver a votar
       gameStore.resetVoting()
-      // Aquí puedes mostrar un mensaje UI tipo:
-      // "Empate, volved a votar entre los jugadores empatados"
+
+      uiStore.showInfo(i18n.global.t('game.tieVoteMessage'), i18n.global.t('game.tieVoteTitle'))
     })
 
     socket.on('gameFinished', ({ winner }) => {

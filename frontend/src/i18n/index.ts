@@ -2,6 +2,14 @@ import { createI18n } from 'vue-i18n'
 
 const messages = {
   es: {
+    common: {
+      errorTitle: 'Error',
+      infoTitle: 'Información',
+      warningTitle: 'Aviso',
+      loading: 'Cargando...',
+      confirm: 'Confirmar',
+      cancel: 'Cancelar',
+    },
     phases: {
       lobby: 'Sala de espera',
       reveal: 'Revelación de roles',
@@ -16,8 +24,41 @@ const messages = {
       restart: 'Reiniciar',
       finish: 'Finalizar partida',
     },
+    errors: {
+      ROOM_NOT_FOUND: 'La sala no existe.',
+      ONLY_HOST_CAN_END_GAME: 'Solo el host puede terminar la partida.',
+      ONLY_HOST_CAN_RESTART: 'Solo el host puede reiniciar la partida.',
+      ONLY_HOST_CAN_START: 'Solo el host puede iniciar la partida.',
+      GAME_ALREADY_STARTED: 'La partida ya ha comenzado.',
+      NOT_ENOUGH_ALIVE_PLAYERS: 'No hay suficientes jugadores vivos.',
+      NOT_WORDS_PHASE: 'Ahora no es la fase de palabras.',
+      NO_ALIVE_PLAYERS: 'No hay jugadores vivos.',
+      NOT_YOUR_TURN: 'No es tu turno.',
+      NOT_VOTING_PHASE: 'Ahora no es la fase de votación.',
+      INVALID_TARGET_TIE: 'Voto inválido (empate).',
+      ALREADY_VOTED: 'Ya has votado.',
+      INVALID_TARGET: 'Objetivo inválido.',
+      NOT_REVEAL_ROUND: 'Ahora no es la fase de revelación.',
+      COULD_NOT_GENERATE_ROOM_CODE: 'No se pudo generar el código de sala.',
+      PLAYER_NOT_FOUND: 'Jugador no encontrado.',
+      NOT_ENOUGH_PLAYERS: 'No hay suficientes jugadores.',
+      UNKNOWN: 'Ha ocurrido un error inesperado.',
+    },
+    game: {
+      tieVoteTitle: 'Empate',
+      tieVoteMessage: 'Ha habido un empate. Vuelve a votar entre los jugadores empatados.',
+    },
   },
+
   en: {
+    common: {
+      errorTitle: 'Error',
+      infoTitle: 'Information',
+      warningTitle: 'Warning',
+      loading: 'Loading...',
+      confirm: 'Confirm',
+      cancel: 'Cancel',
+    },
     phases: {
       lobby: 'Lobby',
       reveal: 'Role Reveal',
@@ -31,6 +72,30 @@ const messages = {
       join: 'Join',
       restart: 'Restart',
       finish: 'Finish Game',
+    },
+    errors: {
+      ROOM_NOT_FOUND: 'Room not found.',
+      ONLY_HOST_CAN_END_GAME: 'Only the host can end the game.',
+      ONLY_HOST_CAN_START: 'Only the host can start the game.',
+      ONLY_HOST_CAN_RESTART: 'Only the host can restart the game.',
+      GAME_ALREADY_STARTED: 'The game has already started.',
+      NOT_ENOUGH_ALIVE_PLAYERS: 'Not enough alive players.',
+      NOT_WORDS_PHASE: 'This is not the words phase.',
+      NO_ALIVE_PLAYERS: 'There are no alive players.',
+      NOT_YOUR_TURN: 'It’s not your turn.',
+      NOT_VOTING_PHASE: 'This is not the voting phase.',
+      INVALID_TARGET_TIE: 'Invalid target (tie).',
+      ALREADY_VOTED: 'You have already voted.',
+      INVALID_TARGET: 'Invalid target.',
+      NOT_REVEAL_ROUND: 'This is not the reveal round.',
+      COULD_NOT_GENERATE_ROOM_CODE: 'Could not generate room code.',
+      PLAYER_NOT_FOUND: 'Player not found.',
+      NOT_ENOUGH_PLAYERS: 'Not enough players.',
+      UNKNOWN: 'An unexpected error occurred.',
+    },
+    game: {
+      tieVoteTitle: 'Tie',
+      tieVoteMessage: 'There was a tie. Please vote again among the tied players.',
     },
   },
 }

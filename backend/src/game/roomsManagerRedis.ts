@@ -286,7 +286,7 @@ export async function startWordsRound(
   if (!room) throw new Error("ROOM_NOT_FOUND");
 
   const caller = room.players.find((p) => p.socketId === callerSocketId);
-  if (!caller || !caller.isHost) throw new Error("ONLY_HOST_CAN_START_ROUND");
+  if (!caller || !caller.isHost) throw new Error("ONLY_HOST_CAN_START");
 
   const alive = room.players.filter((p) => p.alive);
   if (alive.length < 2) throw new Error("NOT_ENOUGH_ALIVE_PLAYERS");

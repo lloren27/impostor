@@ -19,6 +19,7 @@ import {
   deleteRoom,
   removePlayerFromRoom,
 } from "./game/roomsManagerRedis";
+import { KNOWN_ERROR_CODES } from "./constants/errors";
 
 const PORT = process.env.PORT || 4000;
 
@@ -72,8 +73,14 @@ const io = new SocketIOServer(server, {
   pingTimeout: 20000,
 });
 
-function safeEmitError(socket: any, err: any, fallback: string) {
-  socket.emit("errorMessage", { message: err?.message || fallback });
+function safeEmitError(
+  socket: any,
+  err: any,
+  fallbackCode: string = "UNKNOWN"
+) {
+  const raw = typeof err?.message === "string" ? err.message : "";
+  const code = KNOWN_ERROR_CODES.has(raw) ? raw : fallbackCode;
+  socket.emit("errorMessage", { code, message: raw || fallbackCode });
 }
 
 io.on("connection", (socket) => {
@@ -109,14 +116,7 @@ io.on("connection", (socket) => {
         });
       } catch (err: any) {
         console.error("[rejoinRoom ERROR]", err);
-        socket.emit("errorMessage", {
-          message:
-            err?.message === "ROOM_NOT_FOUND"
-              ? "La sala ya no existe. Crea una nueva."
-              : err?.message === "PLAYER_NOT_FOUND"
-              ? "No se encontró tu jugador en la sala. Vuelve a entrar."
-              : "No se pudo reconectar a la sala.",
-        });
+        safeEmitError(socket, err, "UNKNOWN");
       }
     }
   );
@@ -141,7 +141,7 @@ io.on("connection", (socket) => {
       });
     } catch (err) {
       console.error("[createRoom ERROR]", err);
-      safeEmitError(socket, err, "No se pudo crear la sala");
+      safeEmitError(socket, err, "UNKNOWN");
     }
   });
 
@@ -169,7 +169,7 @@ io.on("connection", (socket) => {
       });
     } catch (err: any) {
       console.error("[joinRoom ERROR]", err);
-      safeEmitError(socket, err, "Error al unirse a la sala");
+      safeEmitError(socket, err, "UNKNOWN");
     }
   });
 
@@ -177,7 +177,6 @@ io.on("connection", (socket) => {
     try {
       const { roomCode } = payload;
 
-      // startGame ya valida ROOM_NOT_FOUND / ONLY_HOST_CAN_START / etc.
       const { room: updatedRoom, roles } = await startGame(
         roomCode.toUpperCase(),
         socket.id
@@ -205,7 +204,7 @@ io.on("connection", (socket) => {
       });
     } catch (err: any) {
       console.error("[startGame ERROR]", err);
-      safeEmitError(socket, err, "Error al empezar la partida");
+      safeEmitError(socket, err, "UNKNOWN");
     }
   });
 
@@ -213,7 +212,6 @@ io.on("connection", (socket) => {
     try {
       const { roomCode } = payload;
 
-      // startWordsRound ya valida ROOM_NOT_FOUND / ONLY_HOST_CAN_START_ROUND
       const { room: updatedRoom, currentPlayerId } = await startWordsRound(
         roomCode.toUpperCase(),
         socket.id
@@ -227,11 +225,10 @@ io.on("connection", (socket) => {
       io.to(updatedRoom.code).emit("turnChanged", { currentPlayerId });
     } catch (err: any) {
       console.error("[startWordsRound ERROR]", err);
-      safeEmitError(socket, err, "Error al iniciar la ronda de palabras");
+      safeEmitError(socket, err, "UNKNOWN");
     }
   });
 
-  // ✅ submitWord robusto: payload incluye playerId estable
   socket.on(
     "submitWord",
     async (payload: { roomCode: string; playerId: string; word: string }) => {
@@ -261,7 +258,7 @@ io.on("connection", (socket) => {
         }
       } catch (err: any) {
         console.error("[submitWord ERROR]", err);
-        safeEmitError(socket, err, "Error al enviar la palabra");
+        safeEmitError(socket, err, "UNKNOWN");
       }
     }
   );
@@ -269,7 +266,11 @@ io.on("connection", (socket) => {
   // ✅ submitVote robusto: payload incluye voterId estable
   socket.on(
     "submitVote",
-    async (payload: { roomCode: string; voterId: string; targetId: string }) => {
+    async (payload: {
+      roomCode: string;
+      voterId: string;
+      targetId: string;
+    }) => {
       try {
         const { roomCode, voterId, targetId } = payload;
 
@@ -281,7 +282,12 @@ io.on("connection", (socket) => {
           winner,
           isTie,
           tieCandidates,
-        } = await submitVote(roomCode.toUpperCase(), voterId, socket.id, targetId);
+        } = await submitVote(
+          roomCode.toUpperCase(),
+          voterId,
+          socket.id,
+          targetId
+        );
 
         if (!finishedVoting) {
           if (isTie && tieCandidates) {
@@ -308,7 +314,7 @@ io.on("connection", (socket) => {
         }
       } catch (err: any) {
         console.error("[submitVote ERROR]", err);
-        safeEmitError(socket, err, "Error en la votación");
+        safeEmitError(socket, err, "UNKNOWN");
       }
     }
   );
@@ -328,7 +334,7 @@ io.on("connection", (socket) => {
       io.to(room.code).emit("turnChanged", { currentPlayerId });
     } catch (err: any) {
       console.error("[startNextRound ERROR]", err);
-      safeEmitError(socket, err, "Error al iniciar la siguiente ronda");
+      safeEmitError(socket, err, "UNKNOWN");
     }
   });
 
@@ -364,7 +370,7 @@ io.on("connection", (socket) => {
       });
     } catch (err: any) {
       console.error("[restartGame ERROR]", err);
-      safeEmitError(socket, err, "Error al reiniciar la partida");
+      safeEmitError(socket, err, "UNKNOWN");
     }
   });
 
@@ -382,7 +388,7 @@ io.on("connection", (socket) => {
       await deleteRoom(room.code);
     } catch (err: any) {
       console.error("[endGame ERROR]", err);
-      safeEmitError(socket, err, "Error al finalizar la partida");
+      safeEmitError(socket, err, "UNKNOWN");
     }
   });
 

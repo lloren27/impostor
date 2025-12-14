@@ -2,7 +2,7 @@
   <main class="page page--home">
     <header class="page__header">
       <div>
-        <h1 class="page__title">Juego del Impostor</h1>
+        <img class="img-header" src="/og-image.jpg" />
         <p class="page__subtitle">Crea una sala nueva o únete a una existente.</p>
       </div>
     </header>
@@ -158,5 +158,8 @@ input::placeholder {
   background: rgba(239, 68, 68, 0.1);
   color: #fecaca;
   font-size: 0.85rem;
+}
+.img-header {
+  width: 75%;
 }
 </style>

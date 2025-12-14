@@ -1,5 +1,3 @@
-// src/game/characters.ts
-
 export const CHARACTERS: string[] = [
   "Messi",
   "Julio Iglesias",
@@ -20,8 +18,26 @@ export const CHARACTERS: string[] = [
   "Iker Jimenez",
   "Cristiano Ronaldo",
   "Gabriel Rufian",
-  "Clara Lago",
   "Barcenas",
   "Perico Delgado",
-  "Arantxa Sanchez Vicario"
+  "Arantxa Sanchez Vicario",
+  "David Bisbal",
+  "Cristiano Ronaldo",
+  "Pau Gasol",
+  "Rafa Nadal",
+  "Fernando Alonso",
+  "Marc Marquez",
+  "Kobe Bryant",
+  "Lady Gaga",
+  "Alexia Putellas",
+  "Tadej Pogačar",
+  "Michael Phelps",
+  "Carlos Alcaraz",
+  "Lebron James",
+  "Michael Jordan",
+  "Kylian Mbappé",
+  "Cholo Simeone",
+  "Bad Bunny",
+  "Mickey Mouse",
+  "Michael Jackson"
 ];

@@ -212,6 +212,8 @@ const isTieVoting = computed(() => !!gameStore.tieCandidates && gameStore.tieCan
 
 function sendWord() {
   if (!myWord.value.trim()) return
+  if (!gameStore.me || !gameStore.roomCode) return
+
   socket.emit('submitWord', {
     roomCode: gameStore.roomCode,
     playerId: gameStore.me.id,

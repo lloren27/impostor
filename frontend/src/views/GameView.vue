@@ -163,8 +163,14 @@
     </section>
   </main>
   <FullScreenLoader
-    v-if="gameStore.isReconnecting || isPhaseChanging"
-    :text="gameStore.isReconnecting ? 'Reconectando con la sala...' : 'Cargando...'"
+    v-if="gameStore.isReconnecting || isPhaseChanging || isSubmittingVote"
+    :text="
+      gameStore.isReconnecting
+        ? 'Reconectando con la sala...'
+        : isSubmittingVote
+          ? 'Enviando voto...'
+          : 'Cargando siguiente fase...'
+    "
   />
 </template>
 
@@ -182,7 +188,9 @@ const words = computed(() => gameStore.words)
 const isMyTurn = computed(() => gameStore.isMyTurn)
 const currentPlayerId = computed(() => gameStore.currentPlayerId)
 const roundStarterName = computed(() => gameStore.roundStarterName)
+
 const isPhaseChanging = ref(false)
+const isSubmittingVote = ref(false)
 
 const myWord = ref('')
 
@@ -227,7 +235,7 @@ function submitVote() {
   if (!gameStore.myVote) return
   if (!gameStore.me || !gameStore.roomCode) return
 
-  isPhaseChanging.value = true
+  isSubmittingVote.value = true
 
   socket.emit('submitVote', {
     roomCode: gameStore.roomCode,
@@ -261,6 +269,7 @@ function finishGame() {
 watch(phase, (newPhase, oldPhase) => {
   if (oldPhase && newPhase !== oldPhase) {
     isPhaseChanging.value = false
+    isSubmittingVote.value = false
   }
 })
 </script>

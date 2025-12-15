@@ -11,8 +11,14 @@
     </header>
 
     <section class="page__content">
-      <section v-if="phase === 'reveal'" class="card">
-        <h2>Tu rol</h2>
+      <section v-if="phase === 'reveal'" class="card card--with-avatar">
+        <RoleAvatar
+          :revealed="roleRevealed"
+          :playReveal="playReveal"
+          :isImpostor="!!myRole?.isImpostor"
+          :character="myRole?.character ?? null"
+        />
+        <h2 class="card-title">Tu rol</h2>
         <p v-if="myRole">
           <template v-if="myRole.isImpostor">
             <span>Eres el</span>
@@ -28,7 +34,13 @@
           Empezar ronda de palabras
         </button>
       </section>
-      <section v-else-if="phase === 'words'" class="card">
+      <section v-else-if="phase === 'words'" class="card card--with-avatar">
+        <RoleAvatar
+          :revealed="roleRevealed"
+          :playReveal="playReveal"
+          :isImpostor="!!myRole?.isImpostor"
+          :character="myRole?.character ?? null"
+        />
         <p class="page__subtitle">
           En esta ronda empieza hablando
           <strong>{{ roundStarterName }}</strong
@@ -65,9 +77,13 @@
           </p>
         </div>
       </section>
-
-      <!-- FASE VOTING: votación -->
-      <section v-else-if="gameStore.phase === 'voting'" class="card">
+      <section v-else-if="gameStore.phase === 'voting'" class="card card--with-avatar">
+        <RoleAvatar
+          :revealed="roleRevealed"
+          :playReveal="playReveal"
+          :isImpostor="!!myRole?.isImpostor"
+          :character="myRole?.character ?? null"
+        />
         <h2>Votación</h2>
 
         <h3>Palabras dichas</h3>
@@ -121,10 +137,17 @@
           Votar
         </button>
       </section>
-
-      <!-- FASE REVEALROUND / FIN: resultado ronda o final -->
-      <section v-else-if="phase === 'revealRound' || phase === 'finished'" class="card">
-        <h2>Resultado de la ronda</h2>
+      <section
+        v-else-if="phase === 'revealRound' || phase === 'finished'"
+        class="card card--with-avatar"
+      >
+        <RoleAvatar
+          :revealed="roleRevealed"
+          :playReveal="playReveal"
+          :isImpostor="!!myRole?.isImpostor"
+          :character="myRole?.character ?? null"
+        />
+        <h2 class="round-result">Resultado de la ronda</h2>
 
         <div v-if="gameStore.lastRoundResult">
           <p v-if="gameStore.lastRoundResult.eliminatedPlayer">
@@ -143,7 +166,7 @@
         </div>
 
         <div v-if="phase === 'finished'" class="buttons-finished">
-          <p>La partida ha terminado.</p>
+          <p class="finished-phrase">La partida ha terminado.</p>
 
           <div class="buttons-finished__actions">
             <button v-if="gameStore.isHost" class="btn" @click="restartGame">
@@ -175,11 +198,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useGameSocket } from '@/composables/useGameSocket'
 import FullScreenLoader from '@/components/ui/FullScreenLoader.vue'
+import RoleAvatar from '@/components/ui/RoleAvatar.vue'
 
-const { socket, gameStore } = useGameSocket()
+const { socket, gameStore, onTieVote, onError } = useGameSocket()
 const roomCode = computed(() => gameStore.roomCode)
 const phase = computed(() => gameStore.phase)
 const myRole = computed(() => gameStore.myRole)
@@ -191,6 +215,8 @@ const roundStarterName = computed(() => gameStore.roundStarterName)
 
 const isPhaseChanging = ref(false)
 const isSubmittingVote = ref(false)
+const roleRevealed = ref(false)
+const playReveal = ref(false)
 
 const myWord = ref('')
 
@@ -208,14 +234,12 @@ const voteTargets = computed(() => {
   return base
 })
 
-// 🔹 Nombre del jugador al que he votado
 const selectedPlayerName = computed(() => {
   if (!gameStore.myVote) return null
   const p = gameStore.players.find((p) => p.id === gameStore.myVote)
   return p ? p.name : null
 })
 
-// 🔹 Saber si estamos en una ronda de desempate
 const isTieVoting = computed(() => !!gameStore.tieCandidates && gameStore.tieCandidates.length > 0)
 
 function sendWord() {
@@ -266,12 +290,51 @@ function finishGame() {
   socket.emit('endGame', { roomCode: roomCode.value })
 }
 
+onMounted(() => {
+  onTieVote(() => {
+    isSubmittingVote.value = false
+    isPhaseChanging.value = false
+  })
+
+  onError(() => {
+    isSubmittingVote.value = false
+    isPhaseChanging.value = false
+  })
+})
+
 watch(phase, (newPhase, oldPhase) => {
   if (oldPhase && newPhase !== oldPhase) {
     isPhaseChanging.value = false
     isSubmittingVote.value = false
   }
 })
+
+watch(
+  () => gameStore.lastRoundResult,
+  (val) => {
+    if (val) {
+      isSubmittingVote.value = false
+      isPhaseChanging.value = false
+    }
+  },
+)
+
+watch(
+  phase,
+  (newPhase, oldPhase) => {
+    if (newPhase === 'reveal' && oldPhase !== 'reveal') {
+      roleRevealed.value = true
+      playReveal.value = true
+      window.setTimeout(() => (playReveal.value = false), 850)
+    }
+
+    if (oldPhase && newPhase !== oldPhase) {
+      isPhaseChanging.value = false
+      isSubmittingVote.value = false
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <style scoped>
@@ -338,5 +401,24 @@ input::placeholder {
   color: #f97373;
   font-weight: 700;
   margin: 0 4px;
+}
+.card-title {
+  text-align: center;
+}
+.round-result {
+  text-align: center;
+}
+.finished-phrase {
+  text-align: center;
+}
+.card--with-avatar {
+  position: relative;
+  padding-right: 110px;
+}
+
+.card--with-avatar :deep(.portrait) {
+  position: absolute;
+  top: 12px;
+  right: 12px;
 }
 </style>

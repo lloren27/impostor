@@ -10,6 +10,12 @@ export function useGameSocket() {
   const gameStore = useGameStore()
   const uiStore = useUiStore()
 
+  const tieVoteCallbacks: Array<() => void> = []
+
+  function onTieVote(cb: () => void) {
+    tieVoteCallbacks.push(cb)
+  }
+
   function translateBackendError(code: string) {
     const key = `errors.${code}`
     return i18n.global.te(key) ? i18n.global.t(key) : code
@@ -41,7 +47,6 @@ export function useGameSocket() {
 
   onMounted(() => {
     socket.on('connect', handleConnect)
-
     socket.on('roomJoined', (payload) => {
       gameStore.setReconnecting(false)
       gameStore.setRoomJoined(payload)
@@ -57,7 +62,8 @@ export function useGameSocket() {
     socket.on('errorMessage', ({ code, message }) => {
       gameStore.setReconnecting(false)
 
-      const errorCode = code ?? 'UNKNOWN'
+      const errorCode = code ?? message ?? 'UNKNOWN'
+
       const translated = translateBackendError(errorCode)
 
       uiStore.showInfo(translated, i18n.global.t('common.errorTitle'))
@@ -136,6 +142,8 @@ export function useGameSocket() {
       gameStore.resetVoting()
 
       uiStore.showInfo(i18n.global.t('game.tieVoteMessage'), i18n.global.t('game.tieVoteTitle'))
+
+      tieVoteCallbacks.forEach((cb) => cb()) // 👈 IMPORTANTE
     })
 
     socket.on('gameFinished', ({ winner }) => {
@@ -146,6 +154,16 @@ export function useGameSocket() {
     socket.on('roomEnded', () => {
       gameStore.$reset()
       router.push({ name: 'home' })
+    })
+
+    socket.on('disconnect', () => {
+      gameStore.setReconnecting(true)
+      errorCallbacks.forEach((cb) => cb())
+    })
+
+    socket.on('connect_error', () => {
+      gameStore.setReconnecting(true)
+      errorCallbacks.forEach((cb) => cb())
     })
   })
 
@@ -163,9 +181,12 @@ export function useGameSocket() {
     socket.off('gameFinished')
     socket.off('roomEnded')
     socket.off('tieVote')
+    socket.off('disconnect')
+    socket.off('connect_error')
 
     roomJoinedCallbacks.length = 0
     errorCallbacks.length = 0
+    tieVoteCallbacks.length = 0
   })
 
   return {
@@ -173,5 +194,6 @@ export function useGameSocket() {
     gameStore,
     onRoomJoined,
     onError,
+    onTieVote,
   }
 }

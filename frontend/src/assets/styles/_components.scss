@@ -4,7 +4,7 @@
 .card {
   background: $color-bg-card;
   border-radius: $radius-lg;
-  padding: 14px 16px;
+  padding: 20px 16px;
   box-shadow: $shadow-soft;
   border: 1px solid $color-border;
   display: flex;
@@ -97,10 +97,5 @@
 @media (min-width: $bp-tablet) {
   .page__footer {
     flex-direction: row;
-  }
-
-  .btn {
-    width: auto;
-    min-width: 180px;
   }
 }

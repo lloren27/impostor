@@ -117,6 +117,7 @@ const shareByWhatsApp = () => {
 
 .roomCode-container {
   display: flex;
+  justify-content: center;
 }
 
 .btn-copy {

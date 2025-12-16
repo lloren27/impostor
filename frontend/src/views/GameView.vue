@@ -354,6 +354,13 @@ input {
   padding: 10px 12px;
   min-height: 44px;
   font-size: 1rem;
+  font-family:
+    'Bitcount Prop Single',
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
 }
 
 input::placeholder {

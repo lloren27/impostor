@@ -57,7 +57,7 @@ function startGame() {
 
 const inviteLink = computed(() => {
   if (!gameStore.roomCode) return ''
-  return `${window.location.origin}/join/${gameStore.roomCode}`
+  return `${window.location.origin}/?join=${gameStore.roomCode}`
 })
 
 const copyInviteLink = async () => {

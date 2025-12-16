@@ -43,14 +43,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { socket } from '@/services/socket'
 import { useGameStore } from '@/stores/gameStore'
 import FullScreenLoader from '@/components/ui/FullScreenLoader.vue'
 
 const router = useRouter()
 const gameStore = useGameStore()
+const route = useRoute()
 
 const nameCreate = ref('')
 const nameJoin = ref('')
@@ -118,6 +119,14 @@ async function joinRoom() {
     loading.value = false
   }
 }
+
+onMounted(() => {
+  const joinCode = route.query.join as string | undefined
+  if (joinCode) {
+    roomCodeJoin.value = joinCode.toUpperCase()
+    router.replace({ name: 'home', query: {} })
+  }
+})
 </script>
 <style scoped lang="scss">
 @use '@/assets/styles/fonts';

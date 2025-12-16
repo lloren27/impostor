@@ -8,12 +8,21 @@
 </template>
 
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
+import { onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 const router = useRouter()
+const route = useRoute()
 
 function goHome() {
   router.push('/')
 }
+
+onMounted(() => {
+  const m = route.path.match(/^\/join\/([A-Za-z0-9]+)$/)
+  if (m) {
+    router.replace({ name: 'home', query: { join: m[1].toUpperCase() } })
+  }
+})
 </script>
 
 <style scoped>

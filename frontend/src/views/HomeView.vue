@@ -9,7 +9,7 @@
 
     <section class="page__content">
       <!-- Crear sala -->
-      <section class="card">
+      <section v-if="!isInvite" class="card">
         <h2>Crear sala</h2>
 
         <div class="field">
@@ -21,14 +21,26 @@
 
       <!-- Unirse a sala -->
       <section class="card">
+        <p v-if="isInvite" class="invite-hint">Te han invitado a una sala 🎉</p>
         <h2>Unirse a sala</h2>
 
         <div class="field">
-          <input id="name-join" v-model="nameJoin" placeholder="Introduce tu nombre" />
+          <input
+            id="name-join"
+            ref="nameJoinInput"
+            v-model="nameJoin"
+            placeholder="Introduce tu nombre"
+          />
         </div>
 
         <div class="field">
-          <input id="room-code-join" v-model="roomCodeJoin" placeholder="Código de sala" />
+          <input
+            id="room-code-join"
+            v-model="roomCodeJoin"
+            placeholder="Código de sala"
+            :readonly="isInvite"
+            :class="{ 'input--readonly': isInvite }"
+          />
         </div>
 
         <button class="btn btn--secondary" @click="joinRoom">Unirse</button>
@@ -43,7 +55,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { nextTick, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { socket } from '@/services/socket'
 import { useGameStore } from '@/stores/gameStore'
@@ -58,6 +70,9 @@ const nameJoin = ref('')
 const roomCodeJoin = ref('')
 const errorMessage = ref<string | null>(null)
 const loading = ref(false)
+
+const nameJoinInput = ref<HTMLInputElement | null>(null)
+const isInvite = ref(false)
 
 function createRoom() {
   if (!nameCreate.value.trim()) return
@@ -120,11 +135,17 @@ async function joinRoom() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   const joinCode = route.query.join as string | undefined
   if (joinCode) {
+    isInvite.value = true
+
     roomCodeJoin.value = joinCode.toUpperCase()
+
     router.replace({ name: 'home', query: {} })
+
+    await nextTick()
+    nameJoinInput.value?.focus()
   }
 })
 </script>
@@ -170,5 +191,16 @@ input::placeholder {
 }
 .img-header {
   width: 75%;
+}
+.invite-hint {
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+  color: #9ca3af;
+  text-align: center;
+}
+
+.input--readonly {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 </style>

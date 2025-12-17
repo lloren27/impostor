@@ -4,6 +4,18 @@
       <div>
         <h1 class="page__title">Sala {{ roomCode }}</h1>
         <p class="page__subtitle">Fase: {{ $t(`phases.${gameStore.phase}`) }}</p>
+        <div class="players-strip">
+          <span
+            v-for="p in players"
+            :key="p.id"
+            class="players-strip__item"
+            :class="{ 'players-strip__item--me': gameStore.me?.id === p.id }"
+            :title="p.connected ? 'Conectado' : 'Desconectado'"
+          >
+            <span class="dot" :class="{ 'dot--on': p.connected, 'dot--off': !p.connected }"></span>
+            <span class="name">{{ p.name }}</span>
+          </span>
+        </div>
       </div>
       <div v-if="roundStarterName && phase === 'words'" class="round-indicator">
         Empieza: <strong>{{ roundStarterName }}</strong>
@@ -427,5 +439,47 @@ input::placeholder {
   position: absolute;
   top: 12px;
   right: 12px;
+}
+
+.players-strip {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.players-strip__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.35);
+  font-size: 0.85rem;
+}
+
+.players-strip__item--me {
+  outline: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  display: inline-block;
+  background: #d9534f;
+}
+
+.dot--on {
+  background: #2ecc71;
+}
+
+.dot--off {
+  background: #d9534f;
+}
+
+.name {
+  opacity: 0.95;
 }
 </style>

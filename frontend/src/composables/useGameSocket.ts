@@ -37,12 +37,12 @@ export function useGameSocket() {
     const saved = localStorage.getItem('impostor-session')
     if (!saved) return
 
-    const { roomCode, playerId } = JSON.parse(saved)
+    const { roomCode, playerToken } = JSON.parse(saved)
 
-    if (!roomCode || !playerId) return
+    if (!roomCode || !playerToken) return
     gameStore.setReconnecting(true)
 
-    socket.emit('rejoinRoom', { roomCode, playerId })
+    socket.emit('rejoinRoom', { roomCode, playerToken })
   }
 
   onMounted(() => {
@@ -51,6 +51,7 @@ export function useGameSocket() {
       gameStore.setReconnecting(false)
       gameStore.setRoomJoined(payload)
       gameStore.setPlayerId(payload.playerId)
+      if (payload.playerToken) gameStore.setPlayerToken?.(payload.playerToken)
 
       roomJoinedCallbacks.forEach((cb) => cb(payload))
     })

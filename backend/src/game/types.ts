@@ -9,13 +9,17 @@ export type GamePhase =
   | "finished";
 
 export interface Player {
-  id: string; // ID estable del jugador (para la lógica del juego)
-  socketId: string | null; // socket actual (cambia en cada reconexión)
+  id: string; 
+  token: string   
+  socketId: string | null; 
   name: string;
   isHost: boolean;
   isImpostor: boolean;
   character: string | null;
   alive: boolean;
+  connected: boolean       
+  disconnectedAt: number | null 
+  joinedAt: number           
 }
 
 export interface WordEntry {

@@ -1,4 +1,5 @@
 import "dotenv/config";
+import crypto from "crypto"
 import { Redis } from "@upstash/redis";
 import { CHARACTERS } from "./characters";
 import { Player, Room } from "./types";
@@ -11,9 +12,44 @@ const redis = new Redis({
 // TTLs
 const ROOM_TTL_SECONDS = 60 * 60 * 2; // 2h
 const ROOM_EMPTY_TTL_SECONDS = 60 * 10; // 10min cuando nadie está conectado
+const DISCONNECT_GRACE_MS = 2 * 60 * 1000; // 2 minutos (ajusta)
 
 function roomKey(code: string) {
   return `room:${code.toUpperCase()}`;
+}
+
+function generatePlayerToken(): string {
+  return (
+    crypto?.randomUUID?.() ??
+    Date.now().toString(36) + Math.random().toString(36).slice(2)
+  );
+}
+
+function ensureHost(room: Room) {
+  const connectedPlayers = room.players.filter((p) => p.connected);
+  const hasConnectedHost = connectedPlayers.some((p) => p.isHost);
+
+  if (hasConnectedHost) return;
+
+  // si no hay host conectado, asigna al más antiguo conectado
+  const nextHost = connectedPlayers.sort((a, b) => a.joinedAt - b.joinedAt)[0];
+  if (!nextHost) return;
+
+  room.players.forEach((p) => (p.isHost = false));
+  nextHost.isHost = true;
+}
+
+function pruneDisconnected(room: Room) {
+  const now = Date.now();
+
+  // borra players desconectados hace más de la gracia
+  room.players = room.players.filter((p) => {
+    if (p.connected) return true;
+    if (!p.disconnectedAt) return true;
+    return now - p.disconnectedAt < DISCONNECT_GRACE_MS;
+  });
+
+  ensureHost(room);
 }
 
 function generatePlayerId(): string {
@@ -32,7 +68,25 @@ function generateRoomCode(): string {
 
 async function loadRoom(roomCode: string): Promise<Room | null> {
   const room = await redis.get<Room>(roomKey(roomCode));
-  return room ?? null;
+  if (!room) return null;
+
+  pruneDisconnected(room);
+
+  // Si tras prune no queda nadie, puedes borrar la sala
+  if (room.players.length === 0) {
+    await redis.del(roomKey(room.code));
+    return null;
+  }
+
+  // Persistimos el prune (importante)
+  await saveRoom(
+    room,
+    room.players.some((p) => p.connected)
+      ? ROOM_TTL_SECONDS
+      : ROOM_EMPTY_TTL_SECONDS
+  );
+
+  return room;
 }
 
 async function saveRoom(
@@ -61,7 +115,6 @@ async function createUniqueRoomCode(): Promise<string> {
 }
 
 function syncSocketId(player: Player, socketId: string) {
-  // sincroniza por reconexión o por cambios de socket
   player.socketId = socketId;
 }
 
@@ -73,12 +126,16 @@ export async function createRoom(
 
   const hostPlayer: Player = {
     id: generatePlayerId(),
+    token: generatePlayerToken(),
     socketId: hostSocketId,
     name: hostName,
     isHost: true,
     isImpostor: false,
     character: null,
     alive: true,
+    connected: true,
+    disconnectedAt: null,
+    joinedAt: Date.now(),
   };
 
   const room: Room = {
@@ -112,12 +169,16 @@ export async function joinRoom(
 
   const player: Player = {
     id: generatePlayerId(),
+    token: generatePlayerToken(),
     socketId,
     name,
     isHost: false,
     isImpostor: false,
     character: null,
     alive: true,
+    connected: true,
+    disconnectedAt: null,
+    joinedAt: Date.now(),
   };
 
   room.players.push(player);
@@ -132,18 +193,19 @@ export async function joinRoom(
  */
 export async function rejoinRoom(
   roomCode: string,
-  playerId: string,
+  token: string,
   newSocketId: string
 ): Promise<{ room: Room; player: Player }> {
   const room = await loadRoom(roomCode);
   if (!room) throw new Error("ROOM_NOT_FOUND");
 
-  const player = room.players.find((p) => p.id === playerId);
+  const player = room.players.find((p) => p.token === token);
   if (!player) throw new Error("PLAYER_NOT_FOUND");
 
   syncSocketId(player, newSocketId);
+  player.connected = true;
+  player.disconnectedAt = null;
 
-  // Renovamos TTL normal al volver
   await saveRoom(room, ROOM_TTL_SECONDS);
   return { room, player };
 }
@@ -164,6 +226,30 @@ export async function removePlayerFromRoom(
   player.socketId = null;
 
   const anyConnected = room.players.some((p) => p.socketId !== null);
+  await saveRoom(
+    room,
+    anyConnected ? ROOM_TTL_SECONDS : ROOM_EMPTY_TTL_SECONDS
+  );
+}
+
+export async function markPlayerDisconnected(
+  roomCode: string,
+  socketId: string
+) {
+  const room = await loadRoom(roomCode);
+  if (!room) return;
+
+  const player = room.players.find((p) => p.socketId === socketId);
+  if (!player) return;
+
+  player.socketId = null;
+  player.connected = false;
+  player.disconnectedAt = Date.now();
+
+  // Reasignación host “si hace falta” (pero solo a conectados)
+  ensureHost(room);
+
+  const anyConnected = room.players.some((p) => p.connected);
   await saveRoom(
     room,
     anyConnected ? ROOM_TTL_SECONDS : ROOM_EMPTY_TTL_SECONDS

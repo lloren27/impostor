@@ -5,6 +5,7 @@ export interface Player {
   name: string
   alive: boolean
   isHost?: boolean
+  connected?:boolean
 }
 
 export interface WordEntry {
@@ -21,7 +22,8 @@ export interface RoundResult {
 export interface GameState {
   roomCode: string | null
   me: Player | null
-  playerId: string | null,
+  playerId: string | null
+  playerToken: string | null
   phase: GamePhase
   currentRound: number
   players: Player[]
@@ -34,7 +36,7 @@ export interface GameState {
   lastRoundResult: RoundResult | null
   myVote: string | null // id del jugador al que voto
   hasVoted: boolean
-  roundStarterId: string | null 
+  roundStarterId: string | null
   tieCandidates: Player[] | null
   isReconnecting: boolean
 }

@@ -17,7 +17,7 @@ import {
   startNextRound,
   restartGame,
   deleteRoom,
-  removePlayerFromRoom,
+  markPlayerDisconnected,
 } from "./game/roomsManagerRedis";
 import { KNOWN_ERROR_CODES } from "./constants/errors";
 
@@ -91,13 +91,13 @@ io.on("connection", (socket) => {
   // ✅ REJOIN (Redis)
   socket.on(
     "rejoinRoom",
-    async (payload: { roomCode: string; playerId: string }) => {
+    async (payload: { roomCode: string; playerToken: string }) => {
       try {
-        const { roomCode, playerId } = payload;
+        const { roomCode, playerToken } = payload;
 
         const { room, player } = await rejoinRoom(
           roomCode.toUpperCase(),
-          playerId,
+          playerToken,
           socket.id
         );
 
@@ -107,13 +107,12 @@ io.on("connection", (socket) => {
         socket.emit("roomJoined", {
           roomCode: room.code,
           playerId: player.id,
+          playerToken: player.token,
           player,
           room,
         });
 
-        socket.to(room.code).emit("playersUpdated", {
-          players: room.players,
-        });
+        io.to(room.code).emit("playersUpdated", { players: room.players });
       } catch (err: any) {
         console.error("[rejoinRoom ERROR]", err);
         safeEmitError(socket, err, "UNKNOWN");
@@ -145,9 +144,12 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("joinRoom", async (payload: { roomCode: string; name: string }) => {
+ socket.on(
+  "joinRoom",
+  async (payload: { roomCode: string; name: string }) => {
     try {
       const { roomCode, name } = payload;
+
       const { room, player } = await joinRoom(
         roomCode.toUpperCase(),
         socket.id,
@@ -160,18 +162,19 @@ io.on("connection", (socket) => {
       socket.emit("roomJoined", {
         roomCode: room.code,
         playerId: player.id,
+        playerToken: player.token,
         player,
         room,
       });
 
-      io.to(room.code).emit("playersUpdated", {
-        players: room.players,
-      });
+      io.to(room.code).emit("playersUpdated", { players: room.players });
     } catch (err: any) {
       console.error("[joinRoom ERROR]", err);
       safeEmitError(socket, err, "UNKNOWN");
     }
-  });
+  }
+);
+
 
   socket.on("startGame", async (payload: { roomCode: string }) => {
     try {
@@ -199,6 +202,7 @@ io.on("connection", (socket) => {
           name: p.name,
           alive: p.alive,
           isHost: p.isHost,
+          connected: p.connected, 
         })),
         currentRound: updatedRoom.currentRound,
       });
@@ -365,6 +369,7 @@ io.on("connection", (socket) => {
           name: p.name,
           alive: p.alive,
           isHost: p.isHost,
+          connected: p.connected, 
         })),
         currentRound: updatedRoom.currentRound,
       });
@@ -393,11 +398,13 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", async () => {
-    try {
-      const roomCode = socket.data.roomCode as string | undefined;
-      if (roomCode) await removePlayerFromRoom(roomCode, socket.id);
-    } catch (err) {
-      console.error("[disconnect ERROR]", err);
+    const roomCode = socket.data.roomCode;
+    if (!roomCode) return;
+    await markPlayerDisconnected(roomCode, socket.id);
+
+    const room = await getRoom(roomCode);
+    if (room) {
+      io.to(room.code).emit("playersUpdated", { players: room.players });
     }
   });
 });

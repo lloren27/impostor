@@ -19,7 +19,15 @@
 
         <ul class="list">
           <li v-for="p in players" :key="p.id" class="list__item">
-            <span>{{ p.name }}</span>
+            <span class="player">
+              <span
+                class="dot"
+                :class="{ 'dot--on': p.connected, 'dot--off': !p.connected }"
+              ></span>
+              <span class="player__name">{{ p.name }}</span>
+              <span v-if="!p.connected" class="player__status">(reconectando…)</span>
+            </span>
+
             <span v-if="p.isHost" class="badge">Anfitrión</span>
           </li>
         </ul>
@@ -130,5 +138,32 @@ const shareByWhatsApp = () => {
   &:hover {
     color: cadetblue;
   }
+}
+
+.player {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  display: inline-block;
+  background: #d9534f; /* rojo por defecto */
+}
+
+.dot--on {
+  background: #2ecc71; /* verde */
+}
+
+.dot--off {
+  background: #d9534f; /* rojo */
+}
+
+.player__status {
+  opacity: 0.7;
+  font-size: 0.9rem;
 }
 </style>

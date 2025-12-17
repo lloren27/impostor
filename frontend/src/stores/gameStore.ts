@@ -6,6 +6,7 @@ export const useGameStore = defineStore('game', {
   state: (): GameState => ({
     roomCode: null,
     playerId: null as string | null,
+    playerToken: null as string | null,
     me: null,
     phase: 'lobby',
     currentRound: 0,
@@ -42,6 +43,9 @@ export const useGameStore = defineStore('game', {
     setPlayerId(id: string) {
       this.playerId = id
     },
+    setPlayerToken(token: string) {
+      this.playerToken = token
+    },
     setRoomJoined(payload: any) {
       this.roomCode = payload.roomCode
       this.me = payload.player
@@ -50,6 +54,7 @@ export const useGameStore = defineStore('game', {
         name: p.name,
         alive: p.alive,
         isHost: p.isHost,
+        connected: p.connected,
       }))
       this.phase = payload.room.phase
       this.currentRound = payload.room.currentRound ?? 0
@@ -59,20 +64,34 @@ export const useGameStore = defineStore('game', {
         JSON.stringify({
           roomCode: payload.roomCode,
           playerId: payload.playerId ?? payload.player.id,
+          playerToken: payload.playerToken ?? payload.player?.token,
         }),
       )
 
       this.clearTieCandidates()
       this.resetVoting()
     },
+
     updatePlayers(players: any[]) {
       this.players = players.map((p: any) => ({
         id: p.id,
         name: p.name,
         alive: p.alive,
         isHost: p.isHost,
+        connected: p.connected,
       }))
+
+      if (this.me) {
+        const updatedMe = players.find((p: any) => p.id === this.me?.id)
+        if (updatedMe) {
+          this.me = {
+            ...this.me,
+            isHost: updatedMe.isHost,
+          }
+        }
+      }
     },
+
     setPhase(phase: GamePhase, currentRound?: number) {
       this.phase = phase
       if (typeof currentRound === 'number') {

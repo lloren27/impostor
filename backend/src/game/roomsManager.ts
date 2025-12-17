@@ -23,6 +23,13 @@ function createUniqueRoomCode(): string {
   return code;
 }
 
+function generatePlayerToken(): string {
+  return (
+    crypto?.randomUUID?.() ??
+    Date.now().toString(36) + Math.random().toString(36).slice(2)
+  );
+}
+
 function generatePlayerId(): string {
   return (
     Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10)
@@ -38,12 +45,16 @@ export function createRoom(
 
   const hostPlayer: Player = {
     id: generatePlayerId(),
+    token: generatePlayerToken(),
     socketId: hostSocketId,
     name: hostName,
     isHost: true,
     isImpostor: false,
     character: null,
     alive: true,
+    connected: true,
+    disconnectedAt: null,
+    joinedAt: Date.now(),
   };
 
   const room: Room = {
@@ -87,12 +98,16 @@ export function joinRoom(
   // Siempre creamos jugador nuevo. El "rejoin" se hace con rejoinRoom, no aquí.
   const player: Player = {
     id: generatePlayerId(),
+    token: generatePlayerToken(),
     socketId,
     name,
     isHost: false,
     isImpostor: false,
     character: null,
     alive: true,
+    connected: true,
+    disconnectedAt: null,
+    joinedAt: Date.now(),
   };
 
   room.players.push(player);

@@ -10,7 +10,7 @@
     <section class="page__content">
       <!-- Crear sala -->
       <section v-if="!isInvite" class="card">
-        <h2>Crear sala</h2>
+        <h2 class="title">Crear sala</h2>
 
         <div class="field">
           <input id="name-create" v-model="nameCreate" placeholder="Introduce tu nombre" />
@@ -22,7 +22,7 @@
       <!-- Unirse a sala -->
       <section class="card">
         <p v-if="isInvite" class="invite-hint">Te han invitado a una sala 🎉</p>
-        <h2>Unirse a sala</h2>
+        <h2 class="title">Unirse a sala</h2>
 
         <div class="field">
           <input
@@ -163,8 +163,8 @@ input {
   padding: 10px;
   border-radius: 8px;
   border: 1px solid #1f2937;
-  background: rgba(15, 23, 42, 0.9);
-  color: #f9fafb;
+  background: rgba(26, 41, 77, 0.9);
+  color: #b4dc51;
   padding: 10px 12px;
   min-height: 44px;
   font-size: 1rem;
@@ -178,7 +178,7 @@ input {
 }
 
 input::placeholder {
-  color: #6b7280;
+  color: #b4dc51;
 }
 
 .error-box {
@@ -202,5 +202,8 @@ input::placeholder {
 .input--readonly {
   opacity: 0.7;
   cursor: not-allowed;
+}
+.title {
+  color: #9ca3af;
 }
 </style>

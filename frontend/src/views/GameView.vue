@@ -66,7 +66,7 @@
         </template>
         <h2>Ronda de palabras (ronda {{ gameStore.currentRound }})</h2>
 
-        <h3>Palabras dichas</h3>
+        <h3>Listado de palabras:</h3>
         <ul class="list">
           <li v-for="w in words" :key="w.playerId + w.word" class="list__item">
             <span> {{ players.find((p) => p.id === w.playerId)?.name || '??' }}: </span>
@@ -96,9 +96,9 @@
           :isImpostor="!!myRole?.isImpostor"
           :character="myRole?.character ?? null"
         />
-        <h2>Votación</h2>
+        <h2 class="voting-title">Votación</h2>
 
-        <h3>Palabras dichas</h3>
+        <h3>Listado de palabras</h3>
         <ul class="list">
           <li v-for="w in words" :key="w.playerId + w.word" class="list__item">
             <span> {{ players.find((p) => p.id === w.playerId)?.name || '??' }}: </span>
@@ -123,24 +123,26 @@
           Espera a que termine la votación.
         </p>
 
-        <ul class="list">
-          <li
-            v-for="p in voteTargets"
-            :key="p.id"
-            class="list__item"
-            :class="{
-              'list__item--selected': gameStore.hasVoted && gameStore.myVote === p.id,
-            }"
-          >
-            <label class="vote-option">
+        <ul class="list-vote">
+          <li v-for="p in voteTargets" :key="p.id" class="list__item">
+            <label
+              class="vote-option"
+              :class="{
+                'vote-option--selected': gameStore.myVote === p.id,
+                'vote-option--disabled': gameStore.hasVoted,
+              }"
+            >
               <input
+                class="vote-option__input"
                 type="radio"
                 name="vote"
                 :value="p.id"
                 v-model="gameStore.myVote"
                 :disabled="gameStore.hasVoted"
               />
-              <span>{{ p.name }}</span>
+
+              <span class="vote-option__dot" aria-hidden="true"></span>
+              <span class="vote-option__name">{{ p.name }}</span>
             </label>
           </li>
         </ul>
@@ -169,12 +171,15 @@
             <span v-else> (NO era el impostor) </span>
           </p>
 
-          <p v-if="gameStore.lastRoundResult.winner">
-            Ganador:
+          <div class="resolution" v-if="gameStore.lastRoundResult.winner">
             <strong>
-              {{ gameStore.lastRoundResult.winner === 'players' ? 'Los jugadores' : 'El impostor' }}
+              {{
+                gameStore.lastRoundResult.winner === 'players'
+                  ? 'Ganadores: Los jugadores'
+                  : 'Ganador: El impostor'
+              }}
             </strong>
-          </p>
+          </div>
         </div>
 
         <div v-if="phase === 'finished'" class="buttons-finished">
@@ -237,7 +242,6 @@ const voteTargets = computed(() => {
 
   const base = gameStore.players.filter((p) => p.alive && (!me || p.id !== me.id))
 
-  // si hay desempate, solo se puede votar a esos candidatos
   if (gameStore.tieCandidates && gameStore.tieCandidates.length > 0) {
     const ids = gameStore.tieCandidates.map((p) => p.id)
     return base.filter((p) => ids.includes(p.id))
@@ -361,8 +365,8 @@ input {
   padding: 10px;
   border-radius: 8px;
   border: 1px solid #1f2937;
-  background: rgba(15, 23, 42, 0.9);
-  color: #f9fafb;
+  background: rgba(26, 41, 77, 0.9);
+  color: #b4dc51;
   padding: 10px 12px;
   min-height: 44px;
   font-size: 1rem;
@@ -376,13 +380,14 @@ input {
 }
 
 input::placeholder {
-  color: #6b7280;
+  color: #b4dc51;
 }
 
 .vote-option {
   display: flex;
   align-items: center;
   gap: 8px;
+  color: #b4dc51;
 }
 
 .info-text {
@@ -481,5 +486,86 @@ input::placeholder {
 
 .name {
   opacity: 0.95;
+}
+
+.resolution {
+  background-color: #2ecc71;
+  color: #f9fafb;
+  text-align: center;
+  font-size: 25px;
+}
+.list-vote {
+  margin-bottom: 30px;
+}
+
+.voting-title {
+  color: #6b7280;
+}
+
+.list__item {
+  list-style: none;
+  padding: 0;
+}
+
+.vote-option {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+
+  width: 100%;
+  padding: 18px 22px;
+  border-radius: 16px;
+
+  background: rgba(20, 33, 64, 0.55);
+  color: #c9ff6b; /* tu verde */
+  cursor: pointer;
+  user-select: none;
+
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    transform 0.05s ease;
+}
+
+.vote-option:active {
+  transform: scale(0.995);
+}
+
+/* Oculta el radio nativo pero lo deja accesible */
+.vote-option__input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.vote-option__dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.75);
+  display: inline-block;
+  position: relative;
+}
+
+.vote-option__input:checked + .vote-option__dot::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: #3b82f6; /* azul selección (ajústalo a tu theme) */
+}
+
+.vote-option--selected {
+  background: #c9ff6b;
+  color: #0b1220;
+}
+
+.vote-option--selected .vote-option__dot {
+  border-color: rgba(11, 18, 32, 0.65);
+}
+
+.vote-option--disabled {
+  cursor: not-allowed;
+  opacity: 0.85;
 }
 </style>

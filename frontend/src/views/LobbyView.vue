@@ -15,7 +15,7 @@
 
     <section class="page__content">
       <section class="card">
-        <h2>Jugadores</h2>
+        <h2 class="title">Jugadores</h2>
 
         <ul class="list">
           <li v-for="p in players" :key="p.id" class="list__item">
@@ -165,5 +165,12 @@ const shareByWhatsApp = () => {
 .player__status {
   opacity: 0.7;
   font-size: 0.9rem;
+}
+
+.player__name {
+  color: #b4dc51;
+}
+.title {
+  color: #9ca3af;
 }
 </style>

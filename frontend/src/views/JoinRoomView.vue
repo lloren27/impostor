@@ -80,8 +80,8 @@ input {
   padding: 10px;
   border-radius: 8px;
   border: 1px solid #1f2937;
-  background: rgba(15, 23, 42, 0.9);
-  color: #f9fafb;
+  background: rgba(26, 41, 77, 0.9);
+  color: #b4dc51;
   padding: 10px 12px;
   min-height: 44px;
   font-size: 1rem;
@@ -93,6 +93,11 @@ input {
     'Segoe UI',
     sans-serif;
 }
+
+input::placeholder {
+  color: #b4dc51;
+}
+
 .hint {
   margin-top: 0.75rem;
   font-size: 0.8rem;

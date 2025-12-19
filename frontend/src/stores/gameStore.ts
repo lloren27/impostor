@@ -1,4 +1,4 @@
-// src/stores/gameStore.ts
+
 import { GamePhase, GameState, RoundResult, WordEntry } from '@/interfaces/game.interface'
 import { defineStore } from 'pinia'
 

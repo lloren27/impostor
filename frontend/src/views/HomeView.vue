@@ -101,6 +101,18 @@ async function joinRoom() {
 
     const res = await fetch(`${baseUrl}/rooms/${code}`)
 
+    const saved = localStorage.getItem('impostor-session')
+    let playerToken: string | undefined
+
+    if (saved) {
+      try {
+        const s = JSON.parse(saved)
+        if (s?.roomCode?.toUpperCase() === code && s?.playerToken) {
+          playerToken = s.playerToken
+        }
+      } catch {}
+    }
+
     if (!res.ok) {
       if (res.status === 404) {
         errorMessage.value = 'La sala no existe. Revisa el código.'
@@ -122,6 +134,7 @@ async function joinRoom() {
     socket.emit('joinRoom', {
       roomCode: code,
       name: nameJoin.value.trim(),
+      playerToken,
     })
 
     socket.once('roomJoined', (payload) => {

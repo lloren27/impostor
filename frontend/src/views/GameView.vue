@@ -504,7 +504,8 @@ input::placeholder {
 
 .list__item {
   list-style: none;
-  padding: 0;
+  background: rgba(20, 33, 64, 0.55);
+  color: #c9ff6b;
 }
 
 .vote-option {

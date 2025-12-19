@@ -18,6 +18,7 @@ import {
   restartGame,
   deleteRoom,
   markPlayerDisconnected,
+  joinOrRejoinRoom,
 } from "./game/roomsManagerRedis";
 import { KNOWN_ERROR_CODES } from "./constants/errors";
 
@@ -83,6 +84,41 @@ function safeEmitError(
   socket.emit("errorMessage", { code, message: raw || fallbackCode });
 }
 
+function emitRoomStateToSocket(socket: any, room: any) {
+  socket.emit("roomState", {
+    roomCode: room.code,
+    phase: room.phase,
+    players: room.players.map((p: any) => ({
+      id: p.id,
+      name: p.name,
+      alive: p.alive,
+      isHost: p.isHost,
+      connected: p.connected,
+    })),
+    currentRound: room.currentRound,
+    words: room.words,
+    tieCandidates: room.tieCandidates,
+    winner: room.winner,
+    currentPlayerId:
+      room.phase === "words" && room.baseOrder?.length
+        ? room.baseOrder[room.currentTurnIndex]
+        : null,
+  });
+}
+
+function emitRoleIfKnown(socket: any, room: any, playerId: string) {
+  const p = room.players.find((x: any) => x.id === playerId);
+  if (!p) return;
+
+  if (room.phase !== "lobby" && room.impostorId) {
+    socket.emit("yourRole", {
+      isImpostor: !!p.isImpostor,
+      character: p.character,
+      roomCode: room.code,
+    });
+  }
+}
+
 io.on("connection", (socket) => {
   socket.onAny((event, ...args) => {
     console.log("[onAny]", event, "from", socket.id, "payload:", args[0]);
@@ -112,6 +148,9 @@ io.on("connection", (socket) => {
           room,
         });
 
+        emitRoomStateToSocket(socket, room);
+        emitRoleIfKnown(socket, room, player.id);
+
         io.to(room.code).emit("playersUpdated", { players: room.players });
       } catch (err: any) {
         console.error("[rejoinRoom ERROR]", err);
@@ -131,9 +170,12 @@ io.on("connection", (socket) => {
       socket.emit("roomJoined", {
         roomCode: room.code,
         playerId: player.id,
+        playerToken: player.token,
         player,
         room,
       });
+      
+      emitRoomStateToSocket(socket, room);
 
       io.to(room.code).emit("playersUpdated", {
         players: room.players,
@@ -144,37 +186,46 @@ io.on("connection", (socket) => {
     }
   });
 
- socket.on(
-  "joinRoom",
-  async (payload: { roomCode: string; name: string }) => {
-    try {
-      const { roomCode, name } = payload;
+  socket.on(
+    "joinRoom",
+    async (payload: {
+      roomCode: string;
+      name: string;
+      playerToken?: string;
+    }) => {
+      try {
+        const { roomCode, name, playerToken } = payload;
 
-      const { room, player } = await joinRoom(
-        roomCode.toUpperCase(),
-        socket.id,
-        name
-      );
+        const { room, player, isRejoin } = await joinOrRejoinRoom(
+          roomCode.toUpperCase(),
+          socket.id,
+          name,
+          playerToken
+        );
 
-      socket.data.roomCode = room.code;
-      socket.join(room.code);
+        socket.data.roomCode = room.code;
+        socket.join(room.code);
 
-      socket.emit("roomJoined", {
-        roomCode: room.code,
-        playerId: player.id,
-        playerToken: player.token,
-        player,
-        room,
-      });
+        socket.emit("roomJoined", {
+          roomCode: room.code,
+          playerId: player.id,
+          playerToken: player.token,
+          player,
+          room,
+          isRejoin,
+        });
 
-      io.to(room.code).emit("playersUpdated", { players: room.players });
-    } catch (err: any) {
-      console.error("[joinRoom ERROR]", err);
-      safeEmitError(socket, err, "UNKNOWN");
+        // ✅ snapshot + rol al reconectar
+        emitRoomStateToSocket(socket, room);
+        emitRoleIfKnown(socket, room, player.id);
+
+        io.to(room.code).emit("playersUpdated", { players: room.players });
+      } catch (err: any) {
+        console.error("[joinRoom ERROR]", err);
+        safeEmitError(socket, err, "UNKNOWN");
+      }
     }
-  }
-);
-
+  );
 
   socket.on("startGame", async (payload: { roomCode: string }) => {
     try {
@@ -202,7 +253,7 @@ io.on("connection", (socket) => {
           name: p.name,
           alive: p.alive,
           isHost: p.isHost,
-          connected: p.connected, 
+          connected: p.connected,
         })),
         currentRound: updatedRoom.currentRound,
       });
@@ -369,7 +420,7 @@ io.on("connection", (socket) => {
           name: p.name,
           alive: p.alive,
           isHost: p.isHost,
-          connected: p.connected, 
+          connected: p.connected,
         })),
         currentRound: updatedRoom.currentRound,
       });

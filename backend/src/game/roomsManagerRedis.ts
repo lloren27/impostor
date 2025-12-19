@@ -1,5 +1,5 @@
 import "dotenv/config";
-import crypto from "crypto"
+import crypto from "crypto";
 import { Redis } from "@upstash/redis";
 import { CHARACTERS } from "./characters";
 import { Player, Room } from "./types";
@@ -40,9 +40,13 @@ function ensureHost(room: Room) {
 }
 
 function pruneDisconnected(room: Room) {
+  if (room.phase !== "lobby") {
+    ensureHost(room);
+    return;
+  }
+
   const now = Date.now();
 
-  // borra players desconectados hace más de la gracia
   room.players = room.players.filter((p) => {
     if (p.connected) return true;
     if (!p.disconnectedAt) return true;
@@ -187,10 +191,55 @@ export async function joinRoom(
   return { room, player };
 }
 
-/**
- * REJOIN: encuentra jugador por playerId y actualiza su socketId.
- * Esto es el "cancel delete" en Redis: renovar TTL.
- */
+export async function joinOrRejoinRoom(
+  roomCode: string,
+  socketId: string,
+  name: string,
+  playerToken?: string
+): Promise<{ room: Room; player: Player; isRejoin: boolean }> {
+  const room = await loadRoom(roomCode);
+  if (!room) throw new Error("ROOM_NOT_FOUND");
+
+  // ✅ Si trae token, intenta reenganchar siempre (aunque la partida esté empezada)
+  if (playerToken) {
+    const existing = room.players.find((p) => p.token === playerToken);
+    if (existing) {
+      syncSocketId(existing, socketId);
+      existing.connected = true;
+      existing.disconnectedAt = null;
+
+      // Si ha cambiado nombre, opcionalmente lo actualizas:
+      if (name && existing.name !== name) existing.name = name;
+
+      await saveRoom(room, ROOM_TTL_SECONDS);
+      return { room, player: existing, isRejoin: true };
+    }
+    // Si el token no existe en la sala, seguimos como join normal (o puedes lanzar PLAYER_NOT_FOUND)
+  }
+
+  // ❌ Si NO hay token y la partida ya empezó: fuera
+  if (room.phase !== "lobby") throw new Error("GAME_ALREADY_STARTED");
+
+  const player: Player = {
+    id: generatePlayerId(),
+    token: generatePlayerToken(),
+    socketId,
+    name,
+    isHost: false,
+    isImpostor: false,
+    character: null,
+    alive: true,
+    connected: true,
+    disconnectedAt: null,
+    joinedAt: Date.now(),
+  };
+
+  room.players.push(player);
+  await saveRoom(room);
+
+  return { room, player, isRejoin: false };
+}
+
 export async function rejoinRoom(
   roomCode: string,
   token: string,
@@ -208,28 +257,6 @@ export async function rejoinRoom(
 
   await saveRoom(room, ROOM_TTL_SECONDS);
   return { room, player };
-}
-
-/**
- * Desconexión (siempre que sepas roomCode). Si no lo sabes, necesitas índice.
- */
-export async function removePlayerFromRoom(
-  roomCode: string,
-  socketId: string
-): Promise<void> {
-  const room = await loadRoom(roomCode);
-  if (!room) return;
-
-  const player = room.players.find((p) => p.socketId === socketId);
-  if (!player) return;
-
-  player.socketId = null;
-
-  const anyConnected = room.players.some((p) => p.socketId !== null);
-  await saveRoom(
-    room,
-    anyConnected ? ROOM_TTL_SECONDS : ROOM_EMPTY_TTL_SECONDS
-  );
 }
 
 export async function markPlayerDisconnected(

@@ -39,5 +39,19 @@ export const CHARACTERS: string[] = [
   "Cholo Simeone",
   "Bad Bunny",
   "Mickey Mouse",
-  "Michael Jackson"
+  "Michael Jackson",
+  "Antonio Banderas",
+  "La Reina Leticia",
+  "Barack Obama",
+  "Vladímir Putin",
+  "John Lennon",
+  "Steve Jobs",
+  "Lady Di (Diana de Gales)",
+  "Joaquin Sabina",
+  "El pato Lucas",
+  "Mohammed Ali",
+  "Jorge Lorenzo",
+  "Matias Prats",
+  "Susana Griso",
+  "The Rock (Dwayne Johnson)"
 ];

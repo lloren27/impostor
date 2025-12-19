@@ -47,6 +47,7 @@ export function useGameSocket() {
 
   onMounted(() => {
     socket.on('connect', handleConnect)
+
     socket.on('roomJoined', (payload) => {
       gameStore.setReconnecting(false)
       gameStore.setRoomJoined(payload)
@@ -54,6 +55,27 @@ export function useGameSocket() {
       if (payload.playerToken) gameStore.setPlayerToken?.(payload.playerToken)
 
       roomJoinedCallbacks.forEach((cb) => cb(payload))
+    })
+
+    socket.on('roomState', (state) => {
+      if (state.roomCode) gameStore.roomCode = state.roomCode
+      if (Array.isArray(state.players)) gameStore.updatePlayers(state.players)
+
+      if (state.phase) {
+        gameStore.setPhase(state.phase, state.currentRound)
+      }
+
+      if (state.phase === 'words') {
+        gameStore.setCurrentTurn(state.currentPlayerId ?? null)
+
+        if (!gameStore.roundStarterId && state.currentPlayerId) {
+          gameStore.setRoundStarter(state.currentPlayerId)
+        }
+      }
+
+      if (state.phase && state.phase !== 'lobby') {
+        router.push({ name: 'game', params: { code: state.roomCode } })
+      }
     })
 
     socket.on('playersUpdated', ({ players }) => {
@@ -120,7 +142,7 @@ export function useGameSocket() {
 
     socket.on('yourRole', ({ isImpostor, character }) => {
       gameStore.setMyRole(isImpostor, character)
-      gameStore.setPhase('reveal')
+      // gameStore.setPhase('reveal')
     })
 
     socket.on('turnChanged', ({ currentPlayerId }) => {
@@ -171,6 +193,7 @@ export function useGameSocket() {
   onUnmounted(() => {
     socket.off('connect', handleConnect)
     socket.off('roomJoined')
+    socket.off('roomState')
     socket.off('playersUpdated')
     socket.off('errorMessage')
     socket.off('yourRole')

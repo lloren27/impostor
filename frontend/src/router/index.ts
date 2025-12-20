@@ -4,6 +4,9 @@ import LobbyView from '../views/LobbyView.vue'
 import GameView from '../views/GameView.vue'
 import JoinRoomView from '../views/JoinRoomView.vue'
 import NotFound from '../views/NotFound.vue'
+import LegalNoticeView from '../views/legal/LegalNoticeView.vue'
+import PrivacyPolicyView from '../views/legal/PrivacyPolicyView.vue'
+import CookiePolicyView from '../views/legal/CookiePolicyView.vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -24,13 +27,28 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/join/:roomCode',
     name: 'JoinRoom',
-    component: JoinRoomView
+    component: JoinRoomView,
+  },
+  {
+    path: '/legal-notice',
+    name:'Legal',
+    component: LegalNoticeView,
+  },
+  {
+    path: '/privacy-policy',
+    name:'privacy',
+    component: PrivacyPolicyView,
+  },
+  {
+    path: '/cookie-policy',
+    name:'cookie',
+    component: CookiePolicyView,
   },
   {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
-    component: NotFound
-  }
+    component: NotFound,
+  },
 ]
 
 const router = createRouter({

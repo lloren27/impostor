@@ -16,7 +16,7 @@ const htmlContent = ref('')
 
 onMounted(async () => {
   const md = await props.src()
-  htmlContent.value = marked(md.default)
+  htmlContent.value = await marked.parse(md.default)
 })
 </script>
 

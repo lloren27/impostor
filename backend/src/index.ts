@@ -174,7 +174,7 @@ io.on("connection", (socket) => {
         player,
         room,
       });
-      
+
       emitRoomStateToSocket(socket, room);
 
       io.to(room.code).emit("playersUpdated", {
@@ -277,6 +277,10 @@ io.on("connection", (socket) => {
         currentRound: updatedRoom.currentRound,
       });
 
+      io.to(updatedRoom.code).emit("playersUpdated", {
+        players: updatedRoom.players,
+      });
+
       io.to(updatedRoom.code).emit("turnChanged", { currentPlayerId });
     } catch (err: any) {
       console.error("[startWordsRound ERROR]", err);
@@ -347,9 +351,16 @@ io.on("connection", (socket) => {
         if (!finishedVoting) {
           if (isTie && tieCandidates) {
             io.to(updatedRoom.code).emit("tieVote", { tieCandidates });
+            io.to(updatedRoom.code).emit("playersUpdated", {
+              players: updatedRoom.players,
+            });
           }
           return;
         }
+
+        io.to(updatedRoom.code).emit("playersUpdated", {
+          players: updatedRoom.players,
+        });
 
         io.to(updatedRoom.code).emit("phaseChanged", {
           phase: updatedRoom.phase,
@@ -385,6 +396,9 @@ io.on("connection", (socket) => {
         phase: room.phase,
         currentRound: room.currentRound,
       });
+
+      io.to(room.code).emit("playersUpdated", { players: room.players });
+
 
       io.to(room.code).emit("turnChanged", { currentPlayerId });
     } catch (err: any) {

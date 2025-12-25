@@ -9,11 +9,11 @@
             v-for="p in players"
             :key="p.id"
             class="players-strip__item"
-            :class="{ 'players-strip__item--me': gameStore.me?.id === p.id }"
+            :class="{ 'players-strip__item--me': me?.id === p.id }"
             :title="p.connected ? 'Conectado' : 'Desconectado'"
           >
             <span class="dot" :class="{ 'dot--on': p.connected, 'dot--off': !p.connected }"></span>
-            <span class="name">{{ p.name }}</span>
+            <span class="name" :class="{ death: !p.alive, alive: p.alive }">{{ p.name }}</span>
           </span>
         </div>
       </div>
@@ -89,7 +89,7 @@
           </p>
         </div>
       </section>
-      <section v-else-if="gameStore.phase === 'voting'" class="card card--with-avatar">
+      <section v-else-if="gameStore.phase === 'voting' && me?.alive" class="card card--with-avatar">
         <RoleAvatar
           :revealed="roleRevealed"
           :playReveal="playReveal"
@@ -123,7 +123,7 @@
           Espera a que termine la votación.
         </p>
 
-        <ul class="list-vote">
+        <ul v-if="me?.alive" class="list-vote">
           <li v-for="p in voteTargets" :key="p.id" class="list__item">
             <label
               class="vote-option"
@@ -147,9 +147,18 @@
           </li>
         </ul>
 
-        <button class="btn" @click="submitVote" :disabled="gameStore.hasVoted || !gameStore.myVote">
+        <button
+          v-if="me?.alive"
+          class="btn"
+          @click="submitVote"
+          :disabled="gameStore.hasVoted || !gameStore.myVote"
+        >
           Votar
         </button>
+      </section>
+      <section v-else-if="gameStore.phase === 'voting' && !me?.alive" class="card">
+        <h2>Votación</h2>
+        <p>Estás eliminado. Espera a que el resto vote…</p>
       </section>
       <section
         v-else-if="phase === 'revealRound' || phase === 'finished'"
@@ -229,6 +238,7 @@ const words = computed(() => gameStore.words)
 const isMyTurn = computed(() => gameStore.isMyTurn)
 const currentPlayerId = computed(() => gameStore.currentPlayerId)
 const roundStarterName = computed(() => gameStore.roundStarterName)
+const me = computed(() => gameStore.mePlayer)
 
 const isPhaseChanging = ref(false)
 const isSubmittingVote = ref(false)
@@ -238,12 +248,12 @@ const playReveal = ref(false)
 const myWord = ref('')
 
 const voteTargets = computed(() => {
-  const me = gameStore.me
-
+  const me = gameStore.mePlayer
   const base = gameStore.players.filter((p) => p.alive && (!me || p.id !== me.id))
 
-  if (gameStore.tieCandidates && gameStore.tieCandidates.length > 0) {
-    const ids = gameStore.tieCandidates.map((p) => p.id)
+  const tc: any[] | null = gameStore.tieCandidates as any
+  if (tc && tc.length > 0) {
+    const ids = tc.map((x) => (typeof x === 'string' ? x : x.id))
     return base.filter((p) => ids.includes(p.id))
   }
 
@@ -260,11 +270,11 @@ const isTieVoting = computed(() => !!gameStore.tieCandidates && gameStore.tieCan
 
 function sendWord() {
   if (!myWord.value.trim()) return
-  if (!gameStore.me || !gameStore.roomCode) return
+  if (!gameStore.mePlayer || !gameStore.roomCode) return
 
   socket.emit('submitWord', {
     roomCode: gameStore.roomCode,
-    playerId: gameStore.me.id,
+    playerId: gameStore.mePlayer.id,
     word: myWord.value.trim(),
   })
   myWord.value = ''
@@ -273,13 +283,13 @@ function sendWord() {
 function submitVote() {
   if (gameStore.hasVoted) return
   if (!gameStore.myVote) return
-  if (!gameStore.me || !gameStore.roomCode) return
+  if (!gameStore.mePlayer || !gameStore.roomCode) return
 
   isSubmittingVote.value = true
 
   socket.emit('submitVote', {
     roomCode: gameStore.roomCode,
-    voterId: gameStore.me.id,
+    voterId: gameStore.mePlayer.id,
     targetId: gameStore.myVote,
   })
 
@@ -568,5 +578,14 @@ input::placeholder {
 .vote-option--disabled {
   cursor: not-allowed;
   opacity: 0.85;
+}
+
+.death {
+  text-decoration: line-through;
+  color: red;
+}
+
+.alive {
+  color: #c9ff6b;
 }
 </style>

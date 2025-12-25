@@ -1,4 +1,3 @@
-
 import { GamePhase, GameState, RoundResult, WordEntry } from '@/interfaces/game.interface'
 import { defineStore } from 'pinia'
 
@@ -23,11 +22,17 @@ export const useGameStore = defineStore('game', {
   }),
   // NO MODIFICAN SOLO COMPUTAN ESA INFORMACIÓN
   getters: {
+    mePlayer(state) {
+      if (!state.playerId) return null
+      return state.players.find((p) => p.id === state.playerId) ?? null
+    },
     isHost(state): boolean {
-      return !!state.me?.isHost
+      const me = (this as any).mePlayer
+      return !!me?.isHost
     },
     isMyTurn(state): boolean {
-      return !!state.me && state.currentPlayerId === state.me.id
+      const me = (this as any).mePlayer
+      return !!me && state.currentPlayerId === me.id
     },
     roundStarterName(state): string | null {
       if (!state.roundStarterId) return null
@@ -48,7 +53,9 @@ export const useGameStore = defineStore('game', {
     },
     setRoomJoined(payload: any) {
       this.roomCode = payload.roomCode
-      this.me = payload.player
+      this.playerId = payload.playerId ?? payload.player.id
+      this.playerToken = payload.playerToken ?? payload.player?.token
+
       this.players = payload.room.players.map((p: any) => ({
         id: p.id,
         name: p.name,
@@ -56,6 +63,9 @@ export const useGameStore = defineStore('game', {
         isHost: p.isHost,
         connected: p.connected,
       }))
+
+      this.me = this.players.find((p) => p.id === this.playerId) ?? null
+
       this.phase = payload.room.phase
       this.currentRound = payload.room.currentRound ?? 0
 
@@ -86,6 +96,9 @@ export const useGameStore = defineStore('game', {
         if (updatedMe) {
           this.me = {
             ...this.me,
+            name: updatedMe.name,
+            alive: updatedMe.alive,
+            connected: updatedMe.connected,
             isHost: updatedMe.isHost,
           }
         }

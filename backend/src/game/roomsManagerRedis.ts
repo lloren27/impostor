@@ -496,14 +496,15 @@ export async function submitVote(
 
   const voter = room.players.find((p) => p.id === voterId);
   if (!voter) throw new Error("PLAYER_NOT_FOUND");
+  if (!voter.alive) throw new Error("PLAYER_DEAD");
+  if (!voter.connected) throw new Error("PLAYER_DISCONNECTED");
 
-  // sync socketId por si hubo reconexión
   syncSocketId(voter, callerSocketId);
 
-  const alive = room.players.filter((p) => p.alive);
-  const totalAlive = alive.length;
+  const eligibleVoters = room.players.filter((p) => p.alive && p.connected);
+  const totalEligible = eligibleVoters.length;
 
-  const targetPlayer = alive.find((p) => p.id === targetId);
+  const targetPlayer = room.players.find((p) => p.alive && p.id === targetId);
   if (!targetPlayer) throw new Error("INVALID_TARGET");
 
   if (room.tieCandidates && Array.isArray(room.tieCandidates)) {
@@ -518,7 +519,10 @@ export async function submitVote(
 
   room.votes.push({ voterId: voter.id, targetId });
 
-  if (room.votes.length < totalAlive) {
+  const eligibleIds = new Set(eligibleVoters.map((p) => p.id));
+  room.votes = room.votes.filter((v) => eligibleIds.has(v.voterId));
+
+  if (room.votes.length < totalEligible) {
     await saveRoom(room);
     return {
       room,

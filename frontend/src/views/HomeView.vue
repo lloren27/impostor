@@ -8,7 +8,6 @@
     </header>
 
     <section class="page__content">
-      <!-- Crear sala -->
       <section v-if="!isInvite" class="card">
         <h2 class="title">Crear sala</h2>
 
@@ -18,8 +17,6 @@
 
         <button class="btn" @click="createRoom">Crear</button>
       </section>
-
-      <!-- Unirse a sala -->
       <section class="card">
         <p v-if="isInvite" class="invite-hint">Te han invitado a una sala 🎉</p>
         <h2 class="title">Unirse a sala</h2>
@@ -49,6 +46,15 @@
           {{ errorMessage }}
         </div>
       </section>
+
+      <section class="seo-content">
+        <h2>Juego online para descubrir quién miente</h2>
+        <p>
+          El Juego del Impostor es un juego social online para jugar con amigos desde el navegador.
+          Crea una sala, comparte el código y empieza una partida en segundos, sin registro ni
+          descargas.
+        </p>
+      </section>
     </section>
   </main>
   <FullScreenLoader v-if="loading" text="Entrando en la sala..." />
@@ -56,6 +62,7 @@
 
 <script setup lang="ts">
 import { nextTick, onMounted, ref } from 'vue'
+import { useHead } from '@unhead/vue'
 import { useRoute, useRouter } from 'vue-router'
 import { socket } from '@/services/socket'
 import { useGameStore } from '@/stores/gameStore'
@@ -73,6 +80,25 @@ const loading = ref(false)
 
 const nameJoinInput = ref<HTMLInputElement | null>(null)
 const isInvite = ref(false)
+
+useHead({
+  title: 'El Juego del Impostor – Juego online para descubrir quién miente',
+  meta: [
+    {
+      name: 'description',
+      content:
+        'Juego social online para jugar con amigos. Crea una sala o únete con un código. Descubre quién es el impostor.',
+    },
+    { property: 'og:title', content: 'El Juego del Impostor' },
+    {
+      property: 'og:description',
+      content: 'Crea una sala y descubre quién miente en este juego online con amigos.',
+    },
+    { property: 'og:type', content: 'website' },
+    { property: 'og:url', content: 'https://eljuegodelimpostor.es/' },
+    { property: 'og:image', content: 'https://eljuegodelimpostor.es/og-image.jpg' },
+  ],
+})
 
 function createRoom() {
   if (!nameCreate.value.trim()) return
@@ -217,6 +243,35 @@ input::placeholder {
   cursor: not-allowed;
 }
 .title {
+  color: #9ca3af;
+}
+
+.seo-content {
+  margin-top: 2.5rem;
+  padding: 1.25rem 1.5rem;
+  border-radius: 12px;
+
+  background: rgba(17, 24, 39, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
+
+  text-align: center;
+}
+
+.seo-content h2 {
+  margin: 0 0 0.75rem 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #e5e7eb;
+}
+
+.seo-content p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
   color: #9ca3af;
 }
 </style>

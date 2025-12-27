@@ -46,8 +46,12 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useGameSocket } from '@/composables/useGameSocket'
-
 import { useUiStore } from '@/stores/uiStore'
+import { useHead } from '@unhead/vue'
+
+useHead({
+  meta: [{ name: 'robots', content: 'noindex, nofollow' }],
+})
 
 const route = useRoute()
 const { socket, gameStore } = useGameSocket()

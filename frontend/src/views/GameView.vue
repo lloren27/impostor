@@ -228,6 +228,11 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useGameSocket } from '@/composables/useGameSocket'
 import FullScreenLoader from '@/components/ui/FullScreenLoader.vue'
 import RoleAvatar from '@/components/ui/RoleAvatar.vue'
+import { useHead } from '@unhead/vue'
+
+useHead({
+  meta: [{ name: 'robots', content: 'noindex, nofollow' }],
+})
 
 const { socket, gameStore, onTieVote, onError } = useGameSocket()
 const roomCode = computed(() => gameStore.roomCode)

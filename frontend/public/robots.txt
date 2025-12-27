@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+Disallow: /lobby
+Disallow: /game
+Disallow: /room
+
+Sitemap: https://eljuegodelimpostor.es/sitemap.xml

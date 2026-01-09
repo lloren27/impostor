@@ -1,4 +1,5 @@
 export type GamePhase = 'lobby' | 'reveal' | 'words' | 'voting' | 'revealRound' | 'finished'
+export type GameMode = 'classic' | 'manual'
 
 export interface Player {
   id: string
@@ -20,7 +21,8 @@ export interface RoundResult {
 }
 
 export interface GameState {
-  roomCode: string | null
+  roomCode: string | null,
+  mode: GameMode,
   me: Player | null
   playerId: string | null
   playerToken: string | null

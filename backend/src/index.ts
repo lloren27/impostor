@@ -21,6 +21,7 @@ import {
   joinOrRejoinRoom,
 } from "./game/roomsManagerRedis";
 import { KNOWN_ERROR_CODES } from "./constants/errors";
+import { GameMode } from "./game/types";
 
 const PORT = process.env.PORT || 4000;
 
@@ -87,6 +88,7 @@ function safeEmitError(
 function emitRoomStateToSocket(socket: any, room: any) {
   socket.emit("roomState", {
     roomCode: room.code,
+    mode: room.mode,
     phase: room.phase,
     players: room.players.map((p: any) => ({
       id: p.id,
@@ -159,32 +161,35 @@ io.on("connection", (socket) => {
     }
   );
 
-  socket.on("createRoom", async (payload: { name: string }) => {
-    try {
-      const { name } = payload;
-      const { room, player } = await createRoom(socket.id, name);
+  socket.on(
+    "createRoom",
+    async (payload: { name: string; mode?: GameMode }) => {
+      try {
+        const { name, mode } = payload;
+        const { room, player } = await createRoom(socket.id, name, mode);
 
-      socket.data.roomCode = room.code;
-      socket.join(room.code);
+        socket.data.roomCode = room.code;
+        socket.join(room.code);
 
-      socket.emit("roomJoined", {
-        roomCode: room.code,
-        playerId: player.id,
-        playerToken: player.token,
-        player,
-        room,
-      });
+        socket.emit("roomJoined", {
+          roomCode: room.code,
+          playerId: player.id,
+          playerToken: player.token,
+          player,
+          room,
+        });
 
-      emitRoomStateToSocket(socket, room);
+        emitRoomStateToSocket(socket, room);
 
-      io.to(room.code).emit("playersUpdated", {
-        players: room.players,
-      });
-    } catch (err) {
-      console.error("[createRoom ERROR]", err);
-      safeEmitError(socket, err, "UNKNOWN");
+        io.to(room.code).emit("playersUpdated", {
+          players: room.players,
+        });
+      } catch (err) {
+        console.error("[createRoom ERROR]", err);
+        safeEmitError(socket, err, "UNKNOWN");
+      }
     }
-  });
+  );
 
   socket.on(
     "joinRoom",
@@ -247,6 +252,7 @@ io.on("connection", (socket) => {
 
       io.to(updatedRoom.code).emit("gameStarted", {
         roomCode: updatedRoom.code,
+        mode: updatedRoom.mode,
         phase: updatedRoom.phase,
         players: updatedRoom.players.map((p) => ({
           id: p.id,
@@ -287,6 +293,7 @@ io.on("connection", (socket) => {
       safeEmitError(socket, err, "UNKNOWN");
     }
   });
+  
 
   socket.on(
     "submitWord",
@@ -388,6 +395,7 @@ io.on("connection", (socket) => {
   socket.on("startNextRound", async (payload: { roomCode: string }) => {
     try {
       const { roomCode } = payload;
+
       const { room, currentPlayerId } = await startNextRound(
         roomCode.toUpperCase()
       );
@@ -398,7 +406,6 @@ io.on("connection", (socket) => {
       });
 
       io.to(room.code).emit("playersUpdated", { players: room.players });
-
 
       io.to(room.code).emit("turnChanged", { currentPlayerId });
     } catch (err: any) {
@@ -428,6 +435,7 @@ io.on("connection", (socket) => {
 
       io.to(updatedRoom.code).emit("gameStarted", {
         roomCode: updatedRoom.code,
+        mode: updatedRoom.mode,
         phase: updatedRoom.phase,
         players: updatedRoom.players.map((p) => ({
           id: p.id,

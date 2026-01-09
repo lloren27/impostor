@@ -124,7 +124,8 @@ function syncSocketId(player: Player, socketId: string) {
 
 export async function createRoom(
   hostSocketId: string,
-  hostName: string
+  hostName: string,
+  mode: "classic" | "manual" = "classic"
 ): Promise<{ room: Room; player: Player }> {
   const code = await createUniqueRoomCode();
 
@@ -144,6 +145,7 @@ export async function createRoom(
 
   const room: Room = {
     code,
+    mode,
     players: [hostPlayer],
     phase: "lobby",
     character: null,
@@ -351,25 +353,14 @@ export async function startGame(
   return { room, roles };
 }
 
-export async function restartGame(
-  roomCode: string,
-  callerSocketId: string
-): Promise<{
-  room: Room;
-  roles: {
-    playerId: string;
-    socketId: string | null;
-    isImpostor: boolean;
-    character: string | null;
-  }[];
-}> {
+export async function restartGame(roomCode: string, callerSocketId: string) {
   const room = await loadRoom(roomCode);
   if (!room) throw new Error("ROOM_NOT_FOUND");
 
   const caller = room.players.find((p) => p.socketId === callerSocketId);
   if (!caller || !caller.isHost) throw new Error("ONLY_HOST_CAN_RESTART");
 
-  room.phase = "lobby";
+  // ✅ reset común
   room.currentRound = 0;
   room.words = [];
   room.votes = [];
@@ -387,9 +378,52 @@ export async function restartGame(
     p.character = null;
   });
 
+  // ✅ comportamiento por modo
+  if (room.mode === "manual") {
+    // no vuelvas a lobby, permite restart estando ya en reveal
+    // dejamos la sala en reveal (o incluso puedes dejarla en lobby, pero UX peor)
+    room.phase = "reveal";
+    await saveRoom(room);
+    // startGame exige lobby -> NO lo llames
+    // en manual, simplemente reasignas roles aquí mismo (reutiliza lógica de startGame)
+    // => mejor: factorizar assignRoles(room)
+  } else {
+    room.phase = "lobby";
+    await saveRoom(room);
+    return startGame(roomCode, callerSocketId);
+  }
+
+  // ✅ reasignar roles en manual (copias la parte central de startGame)
+  if (room.players.length < 3) throw new Error("NOT_ENOUGH_PLAYERS");
+
+  const alivePlayers = room.players.filter((p) => p.alive);
+  const impostor = alivePlayers[Math.floor(Math.random() * alivePlayers.length)];
+  room.impostorId = impostor.id;
+
+  const character = CHARACTERS[Math.floor(Math.random() * CHARACTERS.length)];
+  room.character = character;
+
+  const roles = room.players.map((p) => {
+    const isImpostor = p.id === impostor.id;
+    p.isImpostor = isImpostor;
+    p.character = isImpostor ? null : character;
+    p.alive = true;
+
+    return {
+      playerId: p.id,
+      socketId: p.socketId,
+      isImpostor,
+      character: p.character,
+    };
+  });
+
+  room.phase = "reveal";
+  room.currentRound = 1;
+
   await saveRoom(room);
-  return startGame(roomCode, callerSocketId);
+  return { room, roles };
 }
+
 
 export async function startWordsRound(
   roomCode: string,
@@ -397,6 +431,8 @@ export async function startWordsRound(
 ): Promise<{ room: Room; currentPlayerId: string }> {
   const room = await loadRoom(roomCode);
   if (!room) throw new Error("ROOM_NOT_FOUND");
+
+  ensureNotManual(room);
 
   const caller = room.players.find((p) => p.socketId === callerSocketId);
   if (!caller || !caller.isHost) throw new Error("ONLY_HOST_CAN_START");
@@ -439,6 +475,9 @@ export async function submitWord(
 }> {
   const room = await loadRoom(roomCode);
   if (!room) throw new Error("ROOM_NOT_FOUND");
+
+  ensureNotManual(room);
+
   if (room.phase !== "words") throw new Error("NOT_WORDS_PHASE");
 
   const player = room.players.find((p) => p.id === playerId);
@@ -492,6 +531,9 @@ export async function submitVote(
 }> {
   const room = await loadRoom(roomCode);
   if (!room) throw new Error("ROOM_NOT_FOUND");
+
+  ensureNotManual(room);
+
   if (room.phase !== "voting") throw new Error("NOT_VOTING_PHASE");
 
   const voter = room.players.find((p) => p.id === voterId);
@@ -626,6 +668,9 @@ export async function startNextRound(
 ): Promise<{ room: Room; currentPlayerId: string }> {
   const room = await loadRoom(roomCode);
   if (!room) throw new Error("ROOM_NOT_FOUND");
+
+  ensureNotManual(room);
+
   if (room.phase !== "revealRound") throw new Error("NOT_REVEAL_ROUND");
 
   room.phase = "words";
@@ -642,4 +687,8 @@ export async function startNextRound(
 
   await saveRoom(room);
   return { room, currentPlayerId };
+}
+
+function ensureNotManual(room: Room) {
+  if (room.mode === "manual") throw new Error("MANUAL_MODE_ONLY_ROLES");
 }

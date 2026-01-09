@@ -4,6 +4,7 @@ import { defineStore } from 'pinia'
 export const useGameStore = defineStore('game', {
   state: (): GameState => ({
     roomCode: null,
+    mode: 'classic', 
     playerId: null as string | null,
     playerToken: null as string | null,
     me: null,
@@ -53,6 +54,7 @@ export const useGameStore = defineStore('game', {
     },
     setRoomJoined(payload: any) {
       this.roomCode = payload.roomCode
+      this.mode = payload.room?.mode ?? payload.mode ?? 'classic'
       this.playerId = payload.playerId ?? payload.player.id
       this.playerToken = payload.playerToken ?? payload.player?.token
 

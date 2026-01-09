@@ -5,12 +5,14 @@ import { useGameStore } from '@/stores/gameStore'
 import { GamePhase } from '@/interfaces/game.interface'
 import { useUiStore } from '@/stores/uiStore'
 import { i18n } from '@/i18n'
+import { GameMode } from '../interfaces/game.interface'
 
 export function useGameSocket() {
   const gameStore = useGameStore()
   const uiStore = useUiStore()
 
   const tieVoteCallbacks: Array<() => void> = []
+  const gameStartedCallbacks: Array<() => void> = []
 
   function onTieVote(cb: () => void) {
     tieVoteCallbacks.push(cb)
@@ -19,6 +21,10 @@ export function useGameSocket() {
   function translateBackendError(code: string) {
     const key = `errors.${code}`
     return i18n.global.te(key) ? i18n.global.t(key) : code
+  }
+
+  function onGameStarted(cb: () => void) {
+    gameStartedCallbacks.push(cb)
   }
 
   // ahora los callbacks reciben el payload
@@ -59,6 +65,7 @@ export function useGameSocket() {
 
     socket.on('roomState', (state) => {
       if (state.roomCode) gameStore.roomCode = state.roomCode
+      if (state.mode) gameStore.mode = state.mode
       if (Array.isArray(state.players)) gameStore.updatePlayers(state.players)
 
       if (state.phase) {
@@ -108,15 +115,18 @@ export function useGameSocket() {
         players,
         roomCode,
         currentRound,
+        mode,
       }: {
         phase: GamePhase
         players: any[]
         roomCode: string
         currentRound?: number
+        mode: GameMode
       }) => {
         gameStore.roomCode = roomCode
         gameStore.updatePlayers(players)
         gameStore.setPhase(phase, currentRound)
+        if (mode) gameStore.mode = mode
 
         gameStore.resetWords()
         gameStore.resetVoting()
@@ -125,6 +135,7 @@ export function useGameSocket() {
         gameStore.setCurrentTurn(null)
 
         router.push({ name: 'game', params: { code: roomCode } })
+        gameStartedCallbacks.forEach((cb) => cb())
       },
     )
 
@@ -211,6 +222,7 @@ export function useGameSocket() {
     roomJoinedCallbacks.length = 0
     errorCallbacks.length = 0
     tieVoteCallbacks.length = 0
+    gameStartedCallbacks.length = 0
   })
 
   return {
@@ -219,5 +231,6 @@ export function useGameSocket() {
     onRoomJoined,
     onError,
     onTieVote,
+    onGameStarted,
   }
 }

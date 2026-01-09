@@ -8,18 +8,20 @@ export type GamePhase =
   | "revealRound"
   | "finished";
 
+export type GameMode = "classic" | "manual";
+
 export interface Player {
-  id: string; 
-  token: string   
-  socketId: string | null; 
+  id: string;
+  token: string;
+  socketId: string | null;
   name: string;
   isHost: boolean;
   isImpostor: boolean;
   character: string | null;
   alive: boolean;
-  connected: boolean       
-  disconnectedAt: number | null 
-  joinedAt: number           
+  connected: boolean;
+  disconnectedAt: number | null;
+  joinedAt: number;
 }
 
 export interface WordEntry {
@@ -34,6 +36,7 @@ export interface VoteEntry {
 
 export interface Room {
   code: string;
+  mode: GameMode;
   players: Player[];
   phase: GamePhase;
   character: string | null;

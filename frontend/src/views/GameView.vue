@@ -3,7 +3,10 @@
     <header class="page__header">
       <div>
         <h1 class="page__title">Sala {{ roomCode }}</h1>
-        <p class="page__subtitle">Fase: {{ $t(`phases.${gameStore.phase}`) }}</p>
+        <p class="page__subtitle">
+          <template v-if="isManual">Modo: Manual (solo roles)</template>
+          <template v-else>Fase: {{ $t(`phases.${gameStore.phase}`) }}</template>
+        </p>
         <div class="players-strip">
           <span
             v-for="p in players"
@@ -42,9 +45,24 @@
           </template>
         </p>
 
-        <button v-if="gameStore.isHost" class="btn" @click="startWordsRound">
-          Empezar ronda de palabras
-        </button>
+        <template v-if="gameStore.isHost">
+          <button v-if="!isManual" class="btn" @click="startWordsRound">
+            Empezar ronda de palabras
+          </button>
+          <div v-else class="manual-actions">
+            <p class="info-text">
+              Modo manual: la app solo reparte roles. Podéis jugar fuera y repartir de nuevo cuando
+              queráis.
+            </p>
+
+            <button class="btn" @click="restartGame">Repartir roles de nuevo</button>
+            <button class="btn btn--secondary" @click="finishGame">Finalizar sala</button>
+          </div>
+        </template>
+
+        <p v-else-if="isManual" class="info-text">
+          Modo manual. Espera a que el anfitrión reparta roles de nuevo o finalice la sala.
+        </p>
       </section>
       <section v-else-if="phase === 'words'" class="card card--with-avatar">
         <RoleAvatar
@@ -234,7 +252,7 @@ useHead({
   meta: [{ name: 'robots', content: 'noindex, nofollow' }],
 })
 
-const { socket, gameStore, onTieVote, onError } = useGameSocket()
+const { socket, gameStore, onTieVote, onError, onGameStarted } = useGameSocket()
 const roomCode = computed(() => gameStore.roomCode)
 const phase = computed(() => gameStore.phase)
 const myRole = computed(() => gameStore.myRole)
@@ -244,6 +262,7 @@ const isMyTurn = computed(() => gameStore.isMyTurn)
 const currentPlayerId = computed(() => gameStore.currentPlayerId)
 const roundStarterName = computed(() => gameStore.roundStarterName)
 const me = computed(() => gameStore.mePlayer)
+const isManual = computed(() => gameStore.mode === 'manual')
 
 const isPhaseChanging = ref(false)
 const isSubmittingVote = ref(false)
@@ -322,6 +341,11 @@ function finishGame() {
 }
 
 onMounted(() => {
+  onGameStarted(() => {
+    isSubmittingVote.value = false
+    isPhaseChanging.value = false
+  })
+
   onTieVote(() => {
     isSubmittingVote.value = false
     isPhaseChanging.value = false
@@ -592,5 +616,12 @@ input::placeholder {
 
 .alive {
   color: #c9ff6b;
+}
+
+.manual-actions {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 </style>

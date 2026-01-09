@@ -35,7 +35,7 @@
     </section>
 
     <footer class="page__footer">
-      <button v-if="isHost" class="btn btn--secondary" @click="startGame">Empezar partida</button>
+      <button v-if="isHost" class="btn btn--secondary" @click="startGame">{{ startLabel }}</button>
       <button v-if="isHost" class="btn" @click="copyInviteLink">Copiar enlace</button>
       <button v-if="isHost" class="btn" @click="shareByWhatsApp">Compartir por WhatsApp</button>
     </footer>
@@ -61,6 +61,8 @@ const roomCode = computed(() => route.params.code as string)
 
 const players = computed(() => gameStore.players)
 const isHost = computed(() => gameStore.isHost)
+const mode = computed(() => gameStore.mode)
+const startLabel = computed(() => (mode.value === 'manual' ? 'Repartir roles' : 'Empezar partida'))
 
 function startGame() {
   if (!roomCode.value) return

@@ -15,7 +15,23 @@
           <input id="name-create" v-model="nameCreate" placeholder="Introduce tu nombre" />
         </div>
 
+        <div class="field mode-picker">
+          <label class="mode-option" :class="{ 'mode-option--active': createMode === 'classic' }">
+            <input type="radio" value="classic" v-model="createMode" />
+            <span>Partida completa</span>
+          </label>
+
+          <label class="mode-option" :class="{ 'mode-option--active': createMode === 'manual' }">
+            <input type="radio" value="manual" v-model="createMode" />
+            <span>Solo reparto de roles</span>
+          </label>
+        </div>
+
         <button class="btn" @click="createRoom">Crear</button>
+        <p class="only-roles-info">
+          * Si marcas la opción "Solo reparto de roles" no podrás introducir las palabras ni
+          realizar votaciones.
+        </p>
       </section>
       <section class="card">
         <p v-if="isInvite" class="invite-hint">Te han invitado a una sala 🎉</p>
@@ -73,6 +89,7 @@ const gameStore = useGameStore()
 const route = useRoute()
 
 const nameCreate = ref('')
+const createMode = ref<'classic' | 'manual'>('classic')
 const nameJoin = ref('')
 const roomCodeJoin = ref('')
 const errorMessage = ref<string | null>(null)
@@ -106,7 +123,7 @@ function createRoom() {
   errorMessage.value = null
   loading.value = true
 
-  socket.emit('createRoom', { name: nameCreate.value.trim() })
+  socket.emit('createRoom', { name: nameCreate.value.trim(), mode: createMode.value })
   socket.once('roomJoined', (payload) => {
     gameStore.setRoomJoined(payload)
     router.push({ name: 'lobby', params: { code: payload.roomCode } })
@@ -273,5 +290,43 @@ input::placeholder {
   font-size: 0.9rem;
   line-height: 1.5;
   color: #9ca3af;
+}
+
+.mode-picker {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.mode-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(17, 24, 39, 0.35);
+  color: #9ca3af;
+  cursor: pointer;
+  user-select: none;
+
+  input {
+    min-height: auto;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+  }
+}
+
+.mode-option--active {
+  border-color: rgba(180, 220, 81, 0.55);
+  background: rgba(180, 220, 81, 0.08);
+  color: #b4dc51;
+}
+
+.only-roles-info {
+  color: #b4dc51;
 }
 </style>

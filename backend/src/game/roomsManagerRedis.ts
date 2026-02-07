@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { Redis } from "@upstash/redis";
 import { CHARACTERS } from "./characters";
 import { Player, Room } from "./types";
+import { getRandomCharacter } from "./characters/index";
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
@@ -10,9 +11,9 @@ const redis = new Redis({
 });
 
 // TTLs
-const ROOM_TTL_SECONDS = 60 * 60 * 2; // 2h
-const ROOM_EMPTY_TTL_SECONDS = 60 * 10; // 10min cuando nadie está conectado
-const DISCONNECT_GRACE_MS = 2 * 60 * 1000; // 2 minutos (ajusta)
+const ROOM_TTL_SECONDS = 60 * 60 * 2;
+const ROOM_EMPTY_TTL_SECONDS = 60 * 10;
+const DISCONNECT_GRACE_MS = 2 * 60 * 1000;
 
 function roomKey(code: string) {
   return `room:${code.toUpperCase()}`;
@@ -87,7 +88,7 @@ async function loadRoom(roomCode: string): Promise<Room | null> {
     room,
     room.players.some((p) => p.connected)
       ? ROOM_TTL_SECONDS
-      : ROOM_EMPTY_TTL_SECONDS
+      : ROOM_EMPTY_TTL_SECONDS,
   );
 
   return room;
@@ -95,7 +96,7 @@ async function loadRoom(roomCode: string): Promise<Room | null> {
 
 async function saveRoom(
   room: Room,
-  ttlSeconds = ROOM_TTL_SECONDS
+  ttlSeconds = ROOM_TTL_SECONDS,
 ): Promise<void> {
   await redis.set(roomKey(room.code), room, { ex: ttlSeconds });
 }
@@ -125,7 +126,7 @@ function syncSocketId(player: Player, socketId: string) {
 export async function createRoom(
   hostSocketId: string,
   hostName: string,
-  mode: "classic" | "manual" = "classic"
+  mode: "classic" | "manual" = "classic",
 ): Promise<{ room: Room; player: Player }> {
   const code = await createUniqueRoomCode();
 
@@ -167,7 +168,7 @@ export async function createRoom(
 export async function joinRoom(
   roomCode: string,
   socketId: string,
-  name: string
+  name: string,
 ): Promise<{ room: Room; player: Player }> {
   const room = await loadRoom(roomCode);
   if (!room) throw new Error("ROOM_NOT_FOUND");
@@ -197,7 +198,7 @@ export async function joinOrRejoinRoom(
   roomCode: string,
   socketId: string,
   name: string,
-  playerToken?: string
+  playerToken?: string,
 ): Promise<{ room: Room; player: Player; isRejoin: boolean }> {
   const room = await loadRoom(roomCode);
   if (!room) throw new Error("ROOM_NOT_FOUND");
@@ -245,7 +246,7 @@ export async function joinOrRejoinRoom(
 export async function rejoinRoom(
   roomCode: string,
   token: string,
-  newSocketId: string
+  newSocketId: string,
 ): Promise<{ room: Room; player: Player }> {
   const room = await loadRoom(roomCode);
   if (!room) throw new Error("ROOM_NOT_FOUND");
@@ -263,7 +264,7 @@ export async function rejoinRoom(
 
 export async function markPlayerDisconnected(
   roomCode: string,
-  socketId: string
+  socketId: string,
 ) {
   const room = await loadRoom(roomCode);
   if (!room) return;
@@ -281,7 +282,7 @@ export async function markPlayerDisconnected(
   const anyConnected = room.players.some((p) => p.connected);
   await saveRoom(
     room,
-    anyConnected ? ROOM_TTL_SECONDS : ROOM_EMPTY_TTL_SECONDS
+    anyConnected ? ROOM_TTL_SECONDS : ROOM_EMPTY_TTL_SECONDS,
   );
 }
 
@@ -297,7 +298,7 @@ export async function cancelRoomDeletion(roomCode: string): Promise<void> {
 
 export async function startGame(
   roomCode: string,
-  callerSocketId: string
+  callerSocketId: string,
 ): Promise<{
   room: Room;
   roles: {
@@ -321,8 +322,14 @@ export async function startGame(
     alivePlayers[Math.floor(Math.random() * alivePlayers.length)];
   room.impostorId = impostor.id;
 
-  const character = CHARACTERS[Math.floor(Math.random() * CHARACTERS.length)];
-  room.character = character;
+  // const character = CHARACTERS[Math.floor(Math.random() * CHARACTERS.length)];
+  // room.character = character;
+
+  const picked = getRandomCharacter({
+    ambit: "sports",
+    difficulty: 1,
+    onlyActive: true,
+  });
 
   const roles = room.players.map((p) => {
     const isImpostor = p.id === impostor.id;
@@ -397,11 +404,18 @@ export async function restartGame(roomCode: string, callerSocketId: string) {
   if (room.players.length < 3) throw new Error("NOT_ENOUGH_PLAYERS");
 
   const alivePlayers = room.players.filter((p) => p.alive);
-  const impostor = alivePlayers[Math.floor(Math.random() * alivePlayers.length)];
+  const impostor =
+    alivePlayers[Math.floor(Math.random() * alivePlayers.length)];
   room.impostorId = impostor.id;
 
-  const character = CHARACTERS[Math.floor(Math.random() * CHARACTERS.length)];
-  room.character = character;
+  // const character = CHARACTERS[Math.floor(Math.random() * CHARACTERS.length)];
+  // room.character = character;
+
+  const picked = getRandomCharacter({
+    ambit: "sports",
+    difficulty: 1,
+    onlyActive: true,
+  });
 
   const roles = room.players.map((p) => {
     const isImpostor = p.id === impostor.id;
@@ -424,10 +438,9 @@ export async function restartGame(roomCode: string, callerSocketId: string) {
   return { room, roles };
 }
 
-
 export async function startWordsRound(
   roomCode: string,
-  callerSocketId: string
+  callerSocketId: string,
 ): Promise<{ room: Room; currentPlayerId: string }> {
   const room = await loadRoom(roomCode);
   if (!room) throw new Error("ROOM_NOT_FOUND");
@@ -466,7 +479,7 @@ export async function submitWord(
   roomCode: string,
   playerId: string,
   callerSocketId: string,
-  word: string
+  word: string,
 ): Promise<{
   room: Room;
   finishedRound: boolean;
@@ -519,7 +532,7 @@ export async function submitVote(
   roomCode: string,
   voterId: string,
   callerSocketId: string,
-  targetId: string
+  targetId: string,
 ): Promise<{
   room: Room;
   finishedVoting: boolean;
@@ -551,7 +564,7 @@ export async function submitVote(
 
   if (room.tieCandidates && Array.isArray(room.tieCandidates)) {
     const tieIds = (room.tieCandidates as any[]).map((x) =>
-      typeof x === "string" ? x : x.id
+      typeof x === "string" ? x : x.id,
     );
     if (!tieIds.includes(targetId)) throw new Error("INVALID_TARGET_TIE");
   }
@@ -593,7 +606,7 @@ export async function submitVote(
     room.votes = [];
 
     const candidates = room.players.filter((p) =>
-      topCandidateIds.includes(p.id)
+      topCandidateIds.includes(p.id),
     );
     await saveRoom(room);
 
@@ -664,7 +677,7 @@ export async function submitVote(
 }
 
 export async function startNextRound(
-  roomCode: string
+  roomCode: string,
 ): Promise<{ room: Room; currentPlayerId: string }> {
   const room = await loadRoom(roomCode);
   if (!room) throw new Error("ROOM_NOT_FOUND");

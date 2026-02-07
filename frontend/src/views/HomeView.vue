@@ -27,6 +27,20 @@
           </label>
         </div>
 
+        <div class="field">
+          <label class="label">Ámbito</label>
+
+          <select v-model="createAmbit" class="select">
+            <option value="random">Aleatorio</option>
+            <option value="sports">Deportes</option>
+            <option value="cinema">Cine/Series</option>
+            <option value="music">Música</option>
+            <option value="streamers">Streamers</option>
+            <option value="politics">Política</option>
+            <option value="internet">Internet</option>
+          </select>
+        </div>
+
         <button class="btn" @click="createRoom">Crear</button>
         <p class="only-roles-info">
           * Si marcas la opción "Solo reparto de roles" no podrás introducir las palabras ni
@@ -83,6 +97,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { socket } from '@/services/socket'
 import { useGameStore } from '@/stores/gameStore'
 import FullScreenLoader from '@/components/ui/FullScreenLoader.vue'
+import { CharacterAmbit } from '../interfaces/game.interface'
 
 const router = useRouter()
 const gameStore = useGameStore()
@@ -97,6 +112,7 @@ const loading = ref(false)
 
 const nameJoinInput = ref<HTMLInputElement | null>(null)
 const isInvite = ref(false)
+const createAmbit = ref<CharacterAmbit>('random')
 
 useHead({
   title: 'El Juego del Impostor – Juego online para descubrir quién miente',
@@ -123,7 +139,11 @@ function createRoom() {
   errorMessage.value = null
   loading.value = true
 
-  socket.emit('createRoom', { name: nameCreate.value.trim(), mode: createMode.value })
+  socket.emit('createRoom', {
+    name: nameCreate.value.trim(),
+    mode: createMode.value,
+    ambit: createAmbit.value,
+  })
   socket.once('roomJoined', (payload) => {
     gameStore.setRoomJoined(payload)
     router.push({ name: 'lobby', params: { code: payload.roomCode } })
@@ -328,5 +348,31 @@ input::placeholder {
 
 .only-roles-info {
   color: #b4dc51;
+}
+.label {
+  font-size: 0.85rem;
+  color: #9ca3af;
+}
+
+.select {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #1f2937;
+  background: rgba(26, 41, 77, 0.9);
+  color: #b4dc51;
+  min-height: 44px;
+  font-size: 1rem;
+  font-family:
+    'Bitcount Prop Single',
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+}
+
+.select:focus {
+  outline: none;
+  border-color: rgba(180, 220, 81, 0.55);
 }
 </style>

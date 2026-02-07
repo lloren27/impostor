@@ -1,5 +1,7 @@
 export type GamePhase = 'lobby' | 'reveal' | 'words' | 'voting' | 'revealRound' | 'finished'
 export type GameMode = 'classic' | 'manual'
+export type CharacterAmbit = 'random' | 'sports' | 'cinema' | 'music' | 'streamers' | 'politics' | 'internet'
+
 
 export interface Player {
   id: string

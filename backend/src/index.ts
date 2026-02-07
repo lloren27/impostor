@@ -39,7 +39,7 @@ app.use(
     origin: allowedOrigins,
     methods: ["GET", "POST"],
     credentials: true,
-  })
+  }),
 );
 app.use(express.json());
 
@@ -78,7 +78,7 @@ const io = new SocketIOServer(server, {
 function safeEmitError(
   socket: any,
   err: any,
-  fallbackCode: string = "UNKNOWN"
+  fallbackCode: string = "UNKNOWN",
 ) {
   const raw = typeof err?.message === "string" ? err.message : "";
   const code = KNOWN_ERROR_CODES.has(raw) ? raw : fallbackCode;
@@ -136,7 +136,7 @@ io.on("connection", (socket) => {
         const { room, player } = await rejoinRoom(
           roomCode.toUpperCase(),
           playerToken,
-          socket.id
+          socket.id,
         );
 
         socket.data.roomCode = room.code;
@@ -158,7 +158,7 @@ io.on("connection", (socket) => {
         console.error("[rejoinRoom ERROR]", err);
         safeEmitError(socket, err, "UNKNOWN");
       }
-    }
+    },
   );
 
   socket.on(
@@ -188,7 +188,7 @@ io.on("connection", (socket) => {
         console.error("[createRoom ERROR]", err);
         safeEmitError(socket, err, "UNKNOWN");
       }
-    }
+    },
   );
 
   socket.on(
@@ -205,7 +205,7 @@ io.on("connection", (socket) => {
           roomCode.toUpperCase(),
           socket.id,
           name,
-          playerToken
+          playerToken,
         );
 
         socket.data.roomCode = room.code;
@@ -229,7 +229,7 @@ io.on("connection", (socket) => {
         console.error("[joinRoom ERROR]", err);
         safeEmitError(socket, err, "UNKNOWN");
       }
-    }
+    },
   );
 
   socket.on("startGame", async (payload: { roomCode: string }) => {
@@ -238,7 +238,7 @@ io.on("connection", (socket) => {
 
       const { room: updatedRoom, roles } = await startGame(
         roomCode.toUpperCase(),
-        socket.id
+        socket.id,
       );
 
       roles.forEach((r) => {
@@ -275,7 +275,7 @@ io.on("connection", (socket) => {
 
       const { room: updatedRoom, currentPlayerId } = await startWordsRound(
         roomCode.toUpperCase(),
-        socket.id
+        socket.id,
       );
 
       io.to(updatedRoom.code).emit("phaseChanged", {
@@ -293,7 +293,6 @@ io.on("connection", (socket) => {
       safeEmitError(socket, err, "UNKNOWN");
     }
   });
-  
 
   socket.on(
     "submitWord",
@@ -326,10 +325,9 @@ io.on("connection", (socket) => {
         console.error("[submitWord ERROR]", err);
         safeEmitError(socket, err, "UNKNOWN");
       }
-    }
+    },
   );
 
-  // ✅ submitVote robusto: payload incluye voterId estable
   socket.on(
     "submitVote",
     async (payload: {
@@ -352,7 +350,7 @@ io.on("connection", (socket) => {
           roomCode.toUpperCase(),
           voterId,
           socket.id,
-          targetId
+          targetId,
         );
 
         if (!finishedVoting) {
@@ -389,7 +387,7 @@ io.on("connection", (socket) => {
         console.error("[submitVote ERROR]", err);
         safeEmitError(socket, err, "UNKNOWN");
       }
-    }
+    },
   );
 
   socket.on("startNextRound", async (payload: { roomCode: string }) => {
@@ -397,7 +395,7 @@ io.on("connection", (socket) => {
       const { roomCode } = payload;
 
       const { room, currentPlayerId } = await startNextRound(
-        roomCode.toUpperCase()
+        roomCode.toUpperCase(),
       );
 
       io.to(room.code).emit("phaseChanged", {
@@ -421,7 +419,7 @@ io.on("connection", (socket) => {
       // restartGame ya valida host dentro
       const { room: updatedRoom, roles } = await restartGame(
         roomCode.toUpperCase(),
-        socket.id
+        socket.id,
       );
 
       roles.forEach((r) => {

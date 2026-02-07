@@ -2,7 +2,11 @@
   <main class="page page--game">
     <header class="page__header">
       <div>
-        <h1 class="page__title">Sala {{ roomCode }}</h1>
+        <div class="header-top">
+          <h1 class="page__title">Sala {{ roomCode }}</h1>
+          <button class="btn-home" type="button" @click="openLeavePopup">Salir a inicio</button>
+        </div>
+
         <p class="page__subtitle">
           <template v-if="isManual">Modo: Manual (solo roles)</template>
           <template v-else>Fase: {{ $t(`phases.${gameStore.phase}`) }}</template>
@@ -46,9 +50,15 @@
         </p>
 
         <template v-if="gameStore.isHost">
+          <p class="info-text">No conocéis al personaje o queréis cambiarlo antes de empezar</p>
+          <button class="btn btn--secondary reset" @click="restartGame">
+            Repartir roles de nuevo
+          </button>
+
           <button v-if="!isManual" class="btn" @click="startWordsRound">
             Empezar ronda de palabras
           </button>
+
           <div v-else class="manual-actions">
             <p class="info-text">
               Modo manual: la app solo reparte roles. Podéis jugar fuera y repartir de nuevo cuando
@@ -229,6 +239,17 @@
       </section>
     </section>
   </main>
+  <AppPopup
+    v-model="showLeavePopup"
+    title="Abandonar partida"
+    message="Si sales, se cerrará tu sesión guardada y no podrás volver a unirte automáticamente (tendrías que introducir el código de sala de nuevo). ¿Quieres salir?"
+    confirmText="Salir"
+    cancelText="Cancelar"
+    :showCancel="true"
+    :showConfirm="true"
+    :persistent="true"
+    @confirm="confirmLeave"
+  />
   <FullScreenLoader
     v-if="gameStore.isReconnecting || isPhaseChanging || isSubmittingVote"
     :text="
@@ -247,12 +268,13 @@ import { useGameSocket } from '@/composables/useGameSocket'
 import FullScreenLoader from '@/components/ui/FullScreenLoader.vue'
 import RoleAvatar from '@/components/ui/RoleAvatar.vue'
 import { useHead } from '@unhead/vue'
+import AppPopup from '@/components/ui/AppPopup.vue'
 
 useHead({
   meta: [{ name: 'robots', content: 'noindex, nofollow' }],
 })
 
-const { socket, gameStore, onTieVote, onError, onGameStarted } = useGameSocket()
+const { socket, gameStore, onTieVote, onError, onGameStarted, exitToHome } = useGameSocket()
 const roomCode = computed(() => gameStore.roomCode)
 const phase = computed(() => gameStore.phase)
 const myRole = computed(() => gameStore.myRole)
@@ -291,6 +313,18 @@ const selectedPlayerName = computed(() => {
 })
 
 const isTieVoting = computed(() => !!gameStore.tieCandidates && gameStore.tieCandidates.length > 0)
+
+const showLeavePopup = ref(false)
+
+function openLeavePopup() {
+  showLeavePopup.value = true
+}
+
+function confirmLeave() {
+  isPhaseChanging.value = false
+  isSubmittingVote.value = false
+  exitToHome()
+}
 
 function sendWord() {
   if (!myWord.value.trim()) return
@@ -623,5 +657,29 @@ input::placeholder {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.reset {
+  margin-bottom: 5px;
+}
+
+.header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.btn-home {
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(15, 23, 42, 0.35);
+  color: #c9ff6b;
+  border-radius: 999px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.btn-home:active {
+  transform: scale(0.99);
 }
 </style>

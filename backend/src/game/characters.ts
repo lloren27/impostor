@@ -53,5 +53,20 @@ export const CHARACTERS: string[] = [
   "Jorge Lorenzo",
   "Matias Prats",
   "Susana Griso",
-  "The Rock (Dwayne Johnson)"
+  "The Rock (Dwayne Johnson)",
+  "Beyoncé",
+  "Justin Bieber",
+  "Nicolas Maduro",
+  "Tom Cruise",
+  "Marilyn Monroe",
+  "Bizarrap",
+  "Leonardo DiCaprio",
+  "David Beckham",
+  "Lamine Yamal",
+  "Pablo Picasso",
+  "El Che Guevara",
+  "Elvis Presley",
+  "Angelina Jolie",
+  "Ed Sheeran",
+  "Bruno Mars"
 ];

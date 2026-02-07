@@ -27,6 +27,13 @@ export function useGameSocket() {
     gameStartedCallbacks.push(cb)
   }
 
+  function exitToHome() {
+    localStorage.removeItem('impostor-session')
+    gameStore.setReconnecting(false)
+    gameStore.$reset()
+    router.push({ name: 'home' })
+  }
+
   // ahora los callbacks reciben el payload
   const roomJoinedCallbacks: Array<(payload: any) => void> = []
   const errorCallbacks: Array<() => void> = []
@@ -232,5 +239,6 @@ export function useGameSocket() {
     onError,
     onTieVote,
     onGameStarted,
+    exitToHome,
   }
 }

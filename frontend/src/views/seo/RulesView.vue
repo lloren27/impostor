@@ -30,12 +30,6 @@ useHead({
         <p class="seo-lead">
           Aprende todas las reglas del juego del impostor y descubre cómo ganar cada partida.
         </p>
-
-        <div class="seo-actions">
-          <RouterLink to="/" class="seo-button seo-button--primary"> Crear sala </RouterLink>
-
-          <RouterLink to="/" class="seo-button seo-button--secondary"> Unirse a sala </RouterLink>
-        </div>
       </div>
     </section>
 

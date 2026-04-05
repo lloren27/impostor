@@ -30,14 +30,6 @@ useHead({
           Crea una sala, comparte el código con tus amigos y empieza una partida en segundos desde
           móvil, tablet u ordenador.
         </p>
-
-        <div class="seo-actions">
-          <RouterLink to="/" class="seo-button seo-button--primary"> Crear sala </RouterLink>
-
-          <RouterLink to="/" class="seo-button seo-button--secondary">
-            Unirse con código
-          </RouterLink>
-        </div>
       </div>
     </section>
 

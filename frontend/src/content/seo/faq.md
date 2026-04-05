@@ -1,9 +1,3 @@
-# Preguntas frecuentes sobre el Juego del Impostor
-
-Aquí tienes respuestas a las dudas más comunes sobre cómo jugar al juego del impostor online.
-
----
-
 ## ¿Qué es el juego del impostor?
 
 El juego del impostor es un juego multijugador en el que los jugadores deben descubrir quién está mintiendo dentro del grupo.

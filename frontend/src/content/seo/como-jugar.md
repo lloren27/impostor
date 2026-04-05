@@ -1,7 +1,3 @@
-# Cómo jugar al Juego del Impostor
-
-El juego del impostor es un juego online multijugador donde los jugadores deben descubrir quién está mintiendo.
-
 ## Pasos para jugar
 
 ### 1. Crear o unirse a una sala

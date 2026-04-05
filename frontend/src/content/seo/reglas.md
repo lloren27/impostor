@@ -1,7 +1,3 @@
-# Reglas del Juego del Impostor
-
-Las reglas del juego del impostor son simples, pero cada partida puede ser muy diferente. El objetivo principal es descubrir quién es el impostor antes de que termine la ronda.
-
 ## Roles del juego
 
 En cada partida hay dos tipos de jugadores:

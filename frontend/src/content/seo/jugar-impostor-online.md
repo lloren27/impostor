@@ -1,7 +1,3 @@
-# Jugar al Impostor Online
-
-Si estás buscando una forma fácil de **jugar al impostor online**, aquí puedes crear una sala, compartir un código con tus amigos y empezar una partida en pocos segundos.
-
 ## ¿Qué es el juego del impostor online?
 
 El juego del impostor online es un juego multijugador en el que uno de los participantes intenta pasar desapercibido mientras el resto del grupo trata de descubrir quién está mintiendo.

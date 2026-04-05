@@ -1,9 +1,24 @@
 <template>
   <main class="page page--home">
     <header class="page__header">
-      <div>
-        <img class="img-header" src="/og-image.jpg" />
-        <p class="page__subtitle">Crea una sala nueva o únete a una existente.</p>
+      <div class="hero">
+        <img
+          class="img-header"
+          src="/og-image.jpg"
+          alt="Juego del Impostor Online para jugar con amigos"
+        />
+
+        <h1 class="page__title">Juego del Impostor Online</h1>
+
+        <p class="page__subtitle">
+          Crea una sala nueva o únete a una existente para descubrir quién miente.
+        </p>
+
+        <div class="hero-links">
+          <RouterLink to="/como-jugar">Cómo jugar</RouterLink>
+          <RouterLink to="/reglas">Reglas</RouterLink>
+          <RouterLink to="/faq">FAQ</RouterLink>
+        </div>
       </div>
     </header>
 
@@ -28,13 +43,16 @@
         </div>
 
         <button class="btn" @click="createRoom">Crear</button>
+
         <p class="only-roles-info">
           * Si marcas la opción "Solo reparto de roles" no podrás introducir las palabras ni
           realizar votaciones.
         </p>
       </section>
+
       <section class="card">
         <p v-if="isInvite" class="invite-hint">Te han invitado a una sala 🎉</p>
+
         <h2 class="title">Unirse a sala</h2>
 
         <div class="field">
@@ -63,16 +81,55 @@
         </div>
       </section>
 
+      <section class="home-links-card">
+        <h2>Empieza rápido</h2>
+
+        <div class="home-links-grid">
+          <RouterLink to="/jugar-impostor-online" class="home-link-card">
+            Jugar al impostor online
+          </RouterLink>
+
+          <RouterLink to="/como-jugar" class="home-link-card"> Cómo jugar </RouterLink>
+
+          <RouterLink to="/reglas" class="home-link-card"> Reglas del juego </RouterLink>
+
+          <RouterLink to="/faq" class="home-link-card"> Preguntas frecuentes </RouterLink>
+        </div>
+      </section>
+
       <section class="seo-content">
         <h2>Juego online para descubrir quién miente</h2>
+
         <p>
           El Juego del Impostor es un juego social online para jugar con amigos desde el navegador.
           Crea una sala, comparte el código y empieza una partida en segundos, sin registro ni
           descargas.
         </p>
       </section>
+
+      <section class="seo-content seo-content--steps">
+        <h2>Cómo funciona</h2>
+
+        <div class="steps-grid">
+          <article>
+            <h3>1. Crea o únete a una sala</h3>
+            <p>Entra con tu nombre y comparte el código con el resto de jugadores.</p>
+          </article>
+
+          <article>
+            <h3>2. Recibe tu rol</h3>
+            <p>Cada jugador recibe un rol secreto y comienza la ronda.</p>
+          </article>
+
+          <article>
+            <h3>3. Descubre al impostor</h3>
+            <p>Hablad, escribid palabras y votad para descubrir quién está mintiendo.</p>
+          </article>
+        </div>
+      </section>
     </section>
   </main>
+
   <FullScreenLoader v-if="loading" text="Entrando en la sala..." />
 </template>
 
@@ -99,22 +156,24 @@ const nameJoinInput = ref<HTMLInputElement | null>(null)
 const isInvite = ref(false)
 
 useHead({
-  title: 'El Juego del Impostor – Juego online para descubrir quién miente',
+  title: 'Juego del Impostor Online | Crea una sala y juega con amigos',
   meta: [
     {
       name: 'description',
       content:
-        'Juego social online para jugar con amigos. Crea una sala o únete con un código. Descubre quién es el impostor.',
+        'Juega al Juego del Impostor online gratis con amigos desde móvil o PC. Crea una sala, comparte el código y descubre quién miente.',
     },
-    { property: 'og:title', content: 'El Juego del Impostor' },
+    { property: 'og:title', content: 'Juego del Impostor Online' },
     {
       property: 'og:description',
-      content: 'Crea una sala y descubre quién miente en este juego online con amigos.',
+      content:
+        'Crea una sala, comparte el código y juega al impostor online con amigos desde el navegador.',
     },
     { property: 'og:type', content: 'website' },
     { property: 'og:url', content: 'https://eljuegodelimpostor.es/' },
     { property: 'og:image', content: 'https://eljuegodelimpostor.es/og-image.jpg' },
   ],
+  link: [{ rel: 'canonical', href: 'https://eljuegodelimpostor.es/' }],
 })
 
 function createRoom() {
@@ -124,6 +183,7 @@ function createRoom() {
   loading.value = true
 
   socket.emit('createRoom', { name: nameCreate.value.trim(), mode: createMode.value })
+
   socket.once('roomJoined', (payload) => {
     gameStore.setRoomJoined(payload)
     router.push({ name: 'lobby', params: { code: payload.roomCode } })
@@ -195,18 +255,109 @@ onMounted(async () => {
   const joinCode = route.query.join as string | undefined
   if (joinCode) {
     isInvite.value = true
-
     roomCodeJoin.value = joinCode.toUpperCase()
-
     router.replace({ name: 'home', query: {} })
-
     await nextTick()
     nameJoinInput.value?.focus()
   }
 })
 </script>
+
 <style scoped lang="scss">
 @use '@/assets/styles/fonts';
+
+.page {
+  width: 100%;
+  min-height: 100%;
+  box-sizing: border-box;
+}
+
+.page--home {
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+  box-sizing: border-box;
+}
+
+.page__header {
+  width: 100%;
+  margin-bottom: 1.5rem;
+}
+
+.page__content {
+  width: 100%;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.hero {
+  text-align: center;
+  width: 100%;
+}
+
+.img-header {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+  height: auto;
+}
+
+.page__title {
+  margin: 1rem 0 0.5rem;
+  font-size: clamp(2rem, 5vw, 3rem);
+  line-height: 1.1;
+  color: #e5e7eb;
+  text-align: center;
+}
+
+.page__subtitle {
+  max-width: 680px;
+  margin: 0 auto;
+  color: #9ca3af;
+  text-align: center;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.hero-links {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  margin-top: 1rem;
+}
+
+.hero-links a {
+  color: #b4dc51;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.hero-links a:hover {
+  text-decoration: underline;
+}
+
+.card,
+.home-links-card,
+.seo-content {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.card {
+  padding: 1.25rem;
+  border-radius: 18px;
+  background: rgba(17, 24, 39, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.14);
+}
+
+.title {
+  margin: 0 0 1rem;
+  color: #d1d5db;
+}
 
 .field {
   display: flex;
@@ -216,13 +367,14 @@ onMounted(async () => {
 }
 
 input {
-  padding: 10px;
-  border-radius: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 12px;
   border: 1px solid #1f2937;
   background: rgba(26, 41, 77, 0.9);
   color: #b4dc51;
-  padding: 10px 12px;
-  min-height: 44px;
+  padding: 12px 14px;
+  min-height: 48px;
   font-size: 1rem;
   font-family:
     'Bitcount Prop Single',
@@ -235,6 +387,25 @@ input {
 
 input::placeholder {
   color: #b4dc51;
+  opacity: 0.9;
+}
+
+.btn {
+  width: 100%;
+  min-height: 48px;
+  margin-top: 0.25rem;
+  padding: 0.85rem 1rem;
+  border: 0;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 1rem;
+  background: #22c55e;
+  color: white;
+}
+
+.btn--secondary {
+  background: #1d4ed8;
 }
 
 .error-box {
@@ -245,9 +416,7 @@ input::placeholder {
   color: #fecaca;
   font-size: 0.85rem;
 }
-.img-header {
-  width: 75%;
-}
+
 .invite-hint {
   margin-bottom: 0.5rem;
   font-size: 0.85rem;
@@ -259,43 +428,10 @@ input::placeholder {
   opacity: 0.7;
   cursor: not-allowed;
 }
-.title {
-  color: #9ca3af;
-}
-
-.seo-content {
-  margin-top: 2.5rem;
-  padding: 1.25rem 1.5rem;
-  border-radius: 12px;
-
-  background: rgba(17, 24, 39, 0.6);
-  border: 1px solid rgba(148, 163, 184, 0.12);
-
-  max-width: 720px;
-  margin-left: auto;
-  margin-right: auto;
-
-  text-align: center;
-}
-
-.seo-content h2 {
-  margin: 0 0 0.75rem 0;
-  font-size: 1.05rem;
-  font-weight: 600;
-  color: #e5e7eb;
-}
-
-.seo-content p {
-  margin: 0;
-  font-size: 0.9rem;
-  line-height: 1.5;
-  color: #9ca3af;
-}
 
 .mode-picker {
-  display: flex;
+  display: grid;
   gap: 10px;
-  justify-content: center;
   margin-bottom: 12px;
 }
 
@@ -303,9 +439,10 @@ input::placeholder {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-
-  padding: 10px 12px;
-  border-radius: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border-radius: 12px;
   border: 1px solid rgba(148, 163, 184, 0.18);
   background: rgba(17, 24, 39, 0.35);
   color: #9ca3af;
@@ -317,6 +454,7 @@ input::placeholder {
     width: 16px;
     height: 16px;
     margin: 0;
+    padding: 0;
   }
 }
 
@@ -327,6 +465,117 @@ input::placeholder {
 }
 
 .only-roles-info {
+  margin-top: 1rem;
   color: #b4dc51;
+  line-height: 1.45;
+}
+
+.home-links-card {
+  padding: 1.25rem;
+  border-radius: 16px;
+  background: rgba(17, 24, 39, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  text-align: center;
+}
+
+.home-links-card h2 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  color: #e5e7eb;
+}
+
+.home-links-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.home-link-card {
+  display: block;
+  padding: 12px;
+  border-radius: 10px;
+  text-decoration: none;
+  color: #b4dc51;
+  background: rgba(180, 220, 81, 0.08);
+  border: 1px solid rgba(180, 220, 81, 0.18);
+  font-weight: 600;
+}
+
+.seo-content {
+  padding: 1.25rem 1.5rem;
+  border-radius: 16px;
+  background: rgba(17, 24, 39, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  text-align: center;
+}
+
+.seo-content h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #e5e7eb;
+}
+
+.seo-content p {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: #9ca3af;
+}
+
+.seo-content--steps {
+  text-align: left;
+}
+
+.steps-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.steps-grid article {
+  padding: 0.25rem;
+}
+
+.steps-grid article h3 {
+  margin: 0 0 0.5rem;
+  color: #e5e7eb;
+  font-size: 1rem;
+}
+
+.steps-grid article p {
+  color: #9ca3af;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 768px) {
+  .page--home {
+    padding: 1rem 0.875rem 2.5rem;
+  }
+
+  .img-header {
+    max-width: 320px;
+  }
+
+  .page__title {
+    margin-top: 0.85rem;
+    font-size: 2rem;
+  }
+
+  .page__subtitle {
+    font-size: 0.95rem;
+  }
+
+  .home-links-grid,
+  .steps-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .card,
+  .home-links-card,
+  .seo-content {
+    padding: 1rem;
+  }
 }
 </style>

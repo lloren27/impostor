@@ -31,18 +31,38 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/legal-notice',
-    name:'Legal',
+    name: 'Legal',
     component: LegalNoticeView,
   },
   {
     path: '/privacy-policy',
-    name:'privacy',
+    name: 'privacy',
     component: PrivacyPolicyView,
   },
   {
     path: '/cookie-policy',
-    name:'cookie',
+    name: 'cookie',
     component: CookiePolicyView,
+  },
+  {
+    path: '/faq',
+    name: 'faq',
+    component: () => import('@/views/seo/FaqView.vue'),
+  },
+  {
+    path: '/como-jugar',
+    name: 'how-to-play',
+    component: () => import('@/views/seo/HowToPlayView.vue'),
+  },
+  {
+    path: '/reglas',
+    name: 'rules',
+    component: () => import('@/views/seo/RulesView.vue'),
+  },
+  {
+    path: '/jugar-impostor-online',
+    name: 'play-online',
+    component: () => import('@/views/seo/PlayOnlineView.vue'),
   },
   {
     path: '/:pathMatch(.*)*',
@@ -54,6 +74,13 @@ const routes: RouteRecordRaw[] = [
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
+  scrollBehavior(_to, _from, savedPosition) {
+    if (savedPosition) {
+      return savedPosition
+    }
+
+    return { top: 0, left: 0, behavior: 'smooth' }
+  },
 })
 
 export default router

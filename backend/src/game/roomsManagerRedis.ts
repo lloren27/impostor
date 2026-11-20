@@ -1,8 +1,16 @@
-import "dotenv/config";
 import crypto from "crypto";
 import { Redis } from "@upstash/redis";
 import { CHARACTERS } from "./characters";
 import { Player, Room } from "./types";
+
+// Soporte para DOTENV_CONFIG_PATH: si está definida (ej. desde las pruebas),
+// carga el archivo especificado en vez de .env por defecto.
+const dotenvPath = process.env.DOTENV_CONFIG_PATH;
+if (dotenvPath) {
+  require("dotenv").config({ path: dotenvPath });
+} else {
+  require("dotenv").config();
+}
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
@@ -198,7 +206,7 @@ export async function joinOrRejoinRoom(
   socketId: string,
   name: string,
   playerToken?: string
-): Promise<{ room: Room; player: Player; isRejoin: boolean }> {
+): Promise<{ room: Room; player: Player; isRejoin: boolean; oldSocketId: string | null }> {
   const room = await loadRoom(roomCode);
   if (!room) throw new Error("ROOM_NOT_FOUND");
 
@@ -206,6 +214,9 @@ export async function joinOrRejoinRoom(
   if (playerToken) {
     const existing = room.players.find((p) => p.token === playerToken);
     if (existing) {
+      // S1.2: recordar el socket anterior para revocarlo en index.ts
+      const oldSocketId = existing.socketId;
+
       syncSocketId(existing, socketId);
       existing.connected = true;
       existing.disconnectedAt = null;
@@ -214,7 +225,7 @@ export async function joinOrRejoinRoom(
       if (name && existing.name !== name) existing.name = name;
 
       await saveRoom(room, ROOM_TTL_SECONDS);
-      return { room, player: existing, isRejoin: true };
+      return { room, player: existing, isRejoin: true, oldSocketId };
     }
     // Si el token no existe en la sala, seguimos como join normal (o puedes lanzar PLAYER_NOT_FOUND)
   }
@@ -239,26 +250,29 @@ export async function joinOrRejoinRoom(
   room.players.push(player);
   await saveRoom(room);
 
-  return { room, player, isRejoin: false };
+  return { room, player, isRejoin: false, oldSocketId: null };
 }
 
 export async function rejoinRoom(
   roomCode: string,
   token: string,
   newSocketId: string
-): Promise<{ room: Room; player: Player }> {
+): Promise<{ room: Room; player: Player; oldSocketId: string | null }> {
   const room = await loadRoom(roomCode);
   if (!room) throw new Error("ROOM_NOT_FOUND");
 
   const player = room.players.find((p) => p.token === token);
   if (!player) throw new Error("PLAYER_NOT_FOUND");
 
+  // S1.2: recordar el socket anterior para revocarlo en index.ts
+  const oldSocketId = player.socketId;
+
   syncSocketId(player, newSocketId);
   player.connected = true;
   player.disconnectedAt = null;
 
   await saveRoom(room, ROOM_TTL_SECONDS);
-  return { room, player };
+  return { room, player, oldSocketId };
 }
 
 export async function markPlayerDisconnected(
@@ -434,6 +448,9 @@ export async function startWordsRound(
 
   ensureNotManual(room);
 
+  // S1.3 (GAME-04): exigir fase reveal para startWordsRound
+  if (room.phase !== "reveal") throw new Error("NOT_REVEAL_ROUND");
+
   const caller = room.players.find((p) => p.socketId === callerSocketId);
   if (!caller || !caller.isHost) throw new Error("ONLY_HOST_CAN_START");
 
@@ -483,8 +500,11 @@ export async function submitWord(
   const player = room.players.find((p) => p.id === playerId);
   if (!player) throw new Error("PLAYER_NOT_FOUND");
 
-  // sync socketId por si hubo reconexión
-  syncSocketId(player, callerSocketId);
+  // S1.2: validar que el socket que llama es la conexión vigente del jugador
+  // Comparación estricta: si socketId es null (desconectado) también debe fallar.
+  if (player.socketId !== callerSocketId) {
+    throw new Error("UNAUTHORIZED");
+  }
 
   const totalAlive = room.baseOrder.length;
   if (totalAlive === 0) throw new Error("NO_ALIVE_PLAYERS");
@@ -541,7 +561,11 @@ export async function submitVote(
   if (!voter.alive) throw new Error("PLAYER_DEAD");
   if (!voter.connected) throw new Error("PLAYER_DISCONNECTED");
 
-  syncSocketId(voter, callerSocketId);
+  // S1.2: validar que el socket que llama es la conexión vigente del jugador
+  // Comparación estricta: si socketId es null (desconectado) también debe fallar.
+  if (voter.socketId !== callerSocketId) {
+    throw new Error("UNAUTHORIZED");
+  }
 
   const eligibleVoters = room.players.filter((p) => p.alive && p.connected);
   const totalEligible = eligibleVoters.length;

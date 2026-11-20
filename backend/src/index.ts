@@ -21,7 +21,7 @@ import {
   joinOrRejoinRoom,
 } from "./game/roomsManagerRedis";
 import { KNOWN_ERROR_CODES } from "./constants/errors";
-import { GameMode } from "./game/types";
+import { GameMode, toPublicPlayer } from "./game/types";
 
 const PORT = process.env.PORT || 4000;
 
@@ -56,7 +56,7 @@ app.get("/rooms/:code", async (req, res) => {
     if (!room) return res.status(404).json({ exists: false });
     return res.json({ exists: true, code });
   } catch (err) {
-    console.error("[GET /rooms/:code] error", err);
+    logError("GET /rooms/:code", err);
     return res.status(500).json({ exists: false });
   }
 });
@@ -75,14 +75,25 @@ const io = new SocketIOServer(server, {
   pingTimeout: 20000,
 });
 
+function getErrorCode(err: any, fallbackCode: string = "UNKNOWN"): string {
+  const raw = typeof err?.message === "string" ? err.message : "";
+  return KNOWN_ERROR_CODES.has(raw) ? raw : fallbackCode;
+}
+
 function safeEmitError(
   socket: any,
   err: any,
   fallbackCode: string = "UNKNOWN"
 ) {
-  const raw = typeof err?.message === "string" ? err.message : "";
-  const code = KNOWN_ERROR_CODES.has(raw) ? raw : fallbackCode;
-  socket.emit("errorMessage", { code, message: raw || fallbackCode });
+  const code = getErrorCode(err, fallbackCode);
+  // S1.3: no enviar el mensaje raw del servidor al cliente
+  socket.emit("errorMessage", { code, message: code });
+}
+
+/** S1.3: loguear solo el código de error, nunca el objeto completo (puede contener tokens) */
+function logError(tag: string, err: any) {
+  const code = getErrorCode(err);
+  console.error(`[${tag}]`, code);
 }
 
 function emitRoomStateToSocket(socket: any, room: any) {
@@ -122,8 +133,9 @@ function emitRoleIfKnown(socket: any, room: any, playerId: string) {
 }
 
 io.on("connection", (socket) => {
-  socket.onAny((event, ...args) => {
-    console.log("[onAny]", event, "from", socket.id, "payload:", args[0]);
+  // S1.3: loguear solo evento y metadatos, sin el payload completo (puede contener tokens)
+  socket.onAny((event, ..._args) => {
+    console.log("[socket]", event, "from", socket.id);
   });
 
   // ✅ REJOIN (Redis)
@@ -133,29 +145,54 @@ io.on("connection", (socket) => {
       try {
         const { roomCode, playerToken } = payload;
 
-        const { room, player } = await rejoinRoom(
+        const { room, player, oldSocketId } = await rejoinRoom(
           roomCode.toUpperCase(),
           playerToken,
           socket.id
         );
 
+        // S1.2: revocar el socket anterior si existe
+        if (oldSocketId && oldSocketId !== socket.id) {
+          const oldSocket = io.sockets.sockets.get(oldSocketId);
+          if (oldSocket) {
+            // Limpiar la identidad para que submitWord/submitVote fallen
+            oldSocket.data.playerId = undefined;
+            oldSocket.data.roomCode = undefined;
+            // Desunir de la sala y forzar la desconexión
+            oldSocket.leave(room.code);
+            oldSocket.disconnect(true);
+          }
+        }
+
+        // S1.2: asociar identidad al socket
         socket.data.roomCode = room.code;
+        socket.data.playerId = player.id;
         socket.join(room.code);
 
+        // S1.1: roomJoined solo con datos públicos + token propio en campo separado
         socket.emit("roomJoined", {
           roomCode: room.code,
           playerId: player.id,
           playerToken: player.token,
-          player,
-          room,
+          player: toPublicPlayer(player),
+          room: {
+            code: room.code,
+            mode: room.mode,
+            phase: room.phase,
+            players: room.players.map(toPublicPlayer),
+            currentRound: room.currentRound,
+          },
         });
 
         emitRoomStateToSocket(socket, room);
         emitRoleIfKnown(socket, room, player.id);
 
-        io.to(room.code).emit("playersUpdated", { players: room.players });
+        // S1.1: playersUpdated con versión pública
+        io.to(room.code).emit("playersUpdated", {
+          players: room.players.map(toPublicPlayer),
+        });
       } catch (err: any) {
-        console.error("[rejoinRoom ERROR]", err);
+        logError("rejoinRoom", err);
         safeEmitError(socket, err, "UNKNOWN");
       }
     }
@@ -168,24 +205,34 @@ io.on("connection", (socket) => {
         const { name, mode } = payload;
         const { room, player } = await createRoom(socket.id, name, mode);
 
+        // S1.2: asociar identidad al socket
         socket.data.roomCode = room.code;
+        socket.data.playerId = player.id;
         socket.join(room.code);
 
+        // S1.1: roomJoined con datos públicos
         socket.emit("roomJoined", {
           roomCode: room.code,
           playerId: player.id,
           playerToken: player.token,
-          player,
-          room,
+          player: toPublicPlayer(player),
+          room: {
+            code: room.code,
+            mode: room.mode,
+            phase: room.phase,
+            players: room.players.map(toPublicPlayer),
+            currentRound: room.currentRound,
+          },
         });
 
         emitRoomStateToSocket(socket, room);
 
+        // S1.1: playersUpdated con versión pública
         io.to(room.code).emit("playersUpdated", {
-          players: room.players,
+          players: room.players.map(toPublicPlayer),
         });
       } catch (err) {
-        console.error("[createRoom ERROR]", err);
+        logError("createRoom", err);
         safeEmitError(socket, err, "UNKNOWN");
       }
     }
@@ -201,22 +248,44 @@ io.on("connection", (socket) => {
       try {
         const { roomCode, name, playerToken } = payload;
 
-        const { room, player, isRejoin } = await joinOrRejoinRoom(
+        const { room, player, isRejoin, oldSocketId } = await joinOrRejoinRoom(
           roomCode.toUpperCase(),
           socket.id,
           name,
           playerToken
         );
 
+        // S1.2: revocar el socket anterior si hubo reconexión
+        if (isRejoin && oldSocketId && oldSocketId !== socket.id) {
+          const oldSocket = io.sockets.sockets.get(oldSocketId);
+          if (oldSocket) {
+            // Limpiar la identidad para que submitWord/submitVote fallen
+            oldSocket.data.playerId = undefined;
+            oldSocket.data.roomCode = undefined;
+            // Desunir de la sala y forzar la desconexión
+            oldSocket.leave(room.code);
+            oldSocket.disconnect(true);
+          }
+        }
+
+        // S1.2: asociar identidad al socket
         socket.data.roomCode = room.code;
+        socket.data.playerId = player.id;
         socket.join(room.code);
 
+        // S1.1: roomJoined con datos públicos
         socket.emit("roomJoined", {
           roomCode: room.code,
           playerId: player.id,
           playerToken: player.token,
-          player,
-          room,
+          player: toPublicPlayer(player),
+          room: {
+            code: room.code,
+            mode: room.mode,
+            phase: room.phase,
+            players: room.players.map(toPublicPlayer),
+            currentRound: room.currentRound,
+          },
           isRejoin,
         });
 
@@ -224,9 +293,12 @@ io.on("connection", (socket) => {
         emitRoomStateToSocket(socket, room);
         emitRoleIfKnown(socket, room, player.id);
 
-        io.to(room.code).emit("playersUpdated", { players: room.players });
+        // S1.1: playersUpdated con versión pública
+        io.to(room.code).emit("playersUpdated", {
+          players: room.players.map(toPublicPlayer),
+        });
       } catch (err: any) {
-        console.error("[joinRoom ERROR]", err);
+        logError("joinRoom", err);
         safeEmitError(socket, err, "UNKNOWN");
       }
     }
@@ -254,17 +326,11 @@ io.on("connection", (socket) => {
         roomCode: updatedRoom.code,
         mode: updatedRoom.mode,
         phase: updatedRoom.phase,
-        players: updatedRoom.players.map((p) => ({
-          id: p.id,
-          name: p.name,
-          alive: p.alive,
-          isHost: p.isHost,
-          connected: p.connected,
-        })),
+        players: updatedRoom.players.map(toPublicPlayer),
         currentRound: updatedRoom.currentRound,
       });
     } catch (err: any) {
-      console.error("[startGame ERROR]", err);
+      logError("startGame", err);
       safeEmitError(socket, err, "UNKNOWN");
     }
   });
@@ -284,12 +350,12 @@ io.on("connection", (socket) => {
       });
 
       io.to(updatedRoom.code).emit("playersUpdated", {
-        players: updatedRoom.players,
+        players: updatedRoom.players.map(toPublicPlayer),
       });
 
       io.to(updatedRoom.code).emit("turnChanged", { currentPlayerId });
     } catch (err: any) {
-      console.error("[startWordsRound ERROR]", err);
+      logError("startWordsRound", err);
       safeEmitError(socket, err, "UNKNOWN");
     }
   });
@@ -300,6 +366,12 @@ io.on("connection", (socket) => {
     async (payload: { roomCode: string; playerId: string; word: string }) => {
       try {
         const { roomCode, playerId, word } = payload;
+
+        // S1.2: verificar que el socket está asociado al playerId
+        const associatedPlayerId = socket.data.playerId;
+        if (typeof associatedPlayerId !== "string" || associatedPlayerId !== playerId) {
+          throw new Error("UNAUTHORIZED");
+        }
 
         const {
           room: updatedRoom,
@@ -323,7 +395,7 @@ io.on("connection", (socket) => {
           io.to(updatedRoom.code).emit("turnChanged", { currentPlayerId });
         }
       } catch (err: any) {
-        console.error("[submitWord ERROR]", err);
+        logError("submitWord", err);
         safeEmitError(socket, err, "UNKNOWN");
       }
     }
@@ -339,6 +411,12 @@ io.on("connection", (socket) => {
     }) => {
       try {
         const { roomCode, voterId, targetId } = payload;
+
+        // S1.2: verificar que el socket está asociado al voterId
+        const associatedPlayerId = socket.data.playerId;
+        if (typeof associatedPlayerId !== "string" || associatedPlayerId !== voterId) {
+          throw new Error("UNAUTHORIZED");
+        }
 
         const {
           room: updatedRoom,
@@ -357,16 +435,19 @@ io.on("connection", (socket) => {
 
         if (!finishedVoting) {
           if (isTie && tieCandidates) {
-            io.to(updatedRoom.code).emit("tieVote", { tieCandidates });
+            // S1.1: tieVote con versión pública
+            io.to(updatedRoom.code).emit("tieVote", {
+              tieCandidates: tieCandidates.map(toPublicPlayer),
+            });
             io.to(updatedRoom.code).emit("playersUpdated", {
-              players: updatedRoom.players,
+              players: updatedRoom.players.map(toPublicPlayer),
             });
           }
           return;
         }
 
         io.to(updatedRoom.code).emit("playersUpdated", {
-          players: updatedRoom.players,
+          players: updatedRoom.players.map(toPublicPlayer),
         });
 
         io.to(updatedRoom.code).emit("phaseChanged", {
@@ -374,8 +455,9 @@ io.on("connection", (socket) => {
           currentRound: updatedRoom.currentRound,
         });
 
+        // S1.1: roundResult — eliminatedPlayer como público
         io.to(updatedRoom.code).emit("roundResult", {
-          eliminatedPlayer,
+          eliminatedPlayer: eliminatedPlayer ? toPublicPlayer(eliminatedPlayer) : null,
           wasImpostor,
           winner,
         });
@@ -386,7 +468,7 @@ io.on("connection", (socket) => {
           });
         }
       } catch (err: any) {
-        console.error("[submitVote ERROR]", err);
+        logError("submitVote", err);
         safeEmitError(socket, err, "UNKNOWN");
       }
     }
@@ -396,20 +478,28 @@ io.on("connection", (socket) => {
     try {
       const { roomCode } = payload;
 
-      const { room, currentPlayerId } = await startNextRound(
+      // S1.2: startNextRound requiere anfitrión
+      const room = await getRoom(roomCode.toUpperCase());
+      if (!room) throw new Error("ROOM_NOT_FOUND");
+      const caller = room.players.find((p) => p.socketId === socket.id);
+      if (!caller || !caller.isHost) throw new Error("ONLY_HOST_CAN_START");
+
+      const { room: updatedRoom, currentPlayerId } = await startNextRound(
         roomCode.toUpperCase()
       );
 
-      io.to(room.code).emit("phaseChanged", {
-        phase: room.phase,
-        currentRound: room.currentRound,
+      io.to(updatedRoom.code).emit("phaseChanged", {
+        phase: updatedRoom.phase,
+        currentRound: updatedRoom.currentRound,
       });
 
-      io.to(room.code).emit("playersUpdated", { players: room.players });
+      io.to(updatedRoom.code).emit("playersUpdated", {
+        players: updatedRoom.players.map(toPublicPlayer),
+      });
 
-      io.to(room.code).emit("turnChanged", { currentPlayerId });
+      io.to(updatedRoom.code).emit("turnChanged", { currentPlayerId });
     } catch (err: any) {
-      console.error("[startNextRound ERROR]", err);
+      logError("startNextRound", err);
       safeEmitError(socket, err, "UNKNOWN");
     }
   });
@@ -437,17 +527,11 @@ io.on("connection", (socket) => {
         roomCode: updatedRoom.code,
         mode: updatedRoom.mode,
         phase: updatedRoom.phase,
-        players: updatedRoom.players.map((p) => ({
-          id: p.id,
-          name: p.name,
-          alive: p.alive,
-          isHost: p.isHost,
-          connected: p.connected,
-        })),
+        players: updatedRoom.players.map(toPublicPlayer),
         currentRound: updatedRoom.currentRound,
       });
     } catch (err: any) {
-      console.error("[restartGame ERROR]", err);
+      logError("restartGame", err);
       safeEmitError(socket, err, "UNKNOWN");
     }
   });
@@ -465,19 +549,25 @@ io.on("connection", (socket) => {
       io.to(room.code).emit("roomEnded");
       await deleteRoom(room.code);
     } catch (err: any) {
-      console.error("[endGame ERROR]", err);
+      logError("endGame", err);
       safeEmitError(socket, err, "UNKNOWN");
     }
   });
 
   socket.on("disconnect", async () => {
-    const roomCode = socket.data.roomCode;
-    if (!roomCode) return;
-    await markPlayerDisconnected(roomCode, socket.id);
+    try {
+      const roomCode = socket.data.roomCode;
+      if (!roomCode) return;
+      await markPlayerDisconnected(roomCode, socket.id);
 
-    const room = await getRoom(roomCode);
-    if (room) {
-      io.to(room.code).emit("playersUpdated", { players: room.players });
+      const room = await getRoom(roomCode);
+      if (room) {
+        io.to(room.code).emit("playersUpdated", {
+          players: room.players.map(toPublicPlayer),
+        });
+      }
+    } catch (err: any) {
+      logError("disconnect", err);
     }
   });
 });

@@ -179,7 +179,15 @@ export function useGameSocket() {
     })
 
     socket.on('tieVote', ({ tieCandidates }) => {
-      gameStore.setTieCandidates(tieCandidates)
+      // S1.1: tieCandidates vienen como PublicPlayer[] del backend
+      const mapped = tieCandidates.map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        alive: p.alive,
+        isHost: p.isHost,
+        connected: p.connected,
+      }))
+      gameStore.setTieCandidates(mapped)
       gameStore.resetVoting()
 
       uiStore.showInfo(i18n.global.t('game.tieVoteMessage'), i18n.global.t('game.tieVoteTitle'))

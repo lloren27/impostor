@@ -24,6 +24,25 @@ export interface Player {
   joinedAt: number;
 }
 
+/** Versión pública de Player: sin token, socketId, isImpostor, character ni disconnectedAt */
+export interface PublicPlayer {
+  id: string;
+  name: string;
+  alive: boolean;
+  isHost: boolean;
+  connected: boolean;
+}
+
+export function toPublicPlayer(p: Player): PublicPlayer {
+  return {
+    id: p.id,
+    name: p.name,
+    alive: p.alive,
+    isHost: p.isHost,
+    connected: p.connected,
+  };
+}
+
 export interface WordEntry {
   playerId: string;
   word: string;

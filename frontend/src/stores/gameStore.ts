@@ -56,7 +56,8 @@ export const useGameStore = defineStore('game', {
       this.roomCode = payload.roomCode
       this.mode = payload.room?.mode ?? payload.mode ?? 'classic'
       this.playerId = payload.playerId ?? payload.player.id
-      this.playerToken = payload.playerToken ?? payload.player?.token
+      // S1.1: el token viene en playerToken; player ya no incluye token
+      this.playerToken = payload.playerToken
 
       this.players = payload.room.players.map((p: any) => ({
         id: p.id,
@@ -76,7 +77,7 @@ export const useGameStore = defineStore('game', {
         JSON.stringify({
           roomCode: payload.roomCode,
           playerId: payload.playerId ?? payload.player.id,
-          playerToken: payload.playerToken ?? payload.player?.token,
+          playerToken: payload.playerToken,
         }),
       )
 
@@ -146,6 +147,7 @@ export const useGameStore = defineStore('game', {
       this.hasVoted = false
     },
     setTieCandidates(players: any[] | null) {
+      // S1.1: tieCandidates ya vienen como PublicPlayer[]
       this.tieCandidates = players
     },
     clearTieCandidates() {

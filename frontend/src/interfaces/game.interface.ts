@@ -28,6 +28,7 @@ export interface GameState {
   playerToken: string | null
   phase: GamePhase
   currentRound: number
+  voteEpoch: number
   players: Player[]
   currentPlayerId: string | null // al que le toca hablar
   words: WordEntry[]

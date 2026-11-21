@@ -134,6 +134,7 @@
 </template>
 
 <script setup lang="ts">
+import { BACKEND_URL } from '@/services/backendUrl'
 import { nextTick, onMounted, ref } from 'vue'
 import { useHead } from '@unhead/vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -200,7 +201,7 @@ async function joinRoom() {
 
   try {
     const code = roomCodeJoin.value.toUpperCase()
-    const baseUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000'
+    const baseUrl = BACKEND_URL
 
     const res = await fetch(`${baseUrl}/rooms/${code}`)
 

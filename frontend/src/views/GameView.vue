@@ -349,6 +349,7 @@ function submitVote() {
     roomCode: gameStore.roomCode,
     voterId: gameStore.mePlayer.id,
     targetId: gameStore.myVote,
+    voteEpoch: gameStore.voteEpoch,
   })
 
   gameStore.markAsVoted()

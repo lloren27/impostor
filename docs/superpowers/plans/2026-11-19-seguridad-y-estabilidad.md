@@ -1,7 +1,7 @@
 # Plan de seguridad y estabilidad por sprints
 
 **Fecha:** 19 de noviembre de 2026.
-**Estado:** Sprint 1: completado (20 de noviembre de 2026, validación final 20 de noviembre de 2026). Sprints 2–4 pendientes.
+**Estado:** Sprints 1 y 2: implementación verificada (22 de noviembre de 2026). Sprints 3–4 pendientes; publicación no realizada.
 Validación de la corrección del 21 de noviembre de 2026: 11 pruebas de integración pasadas y 0 fallidas contra Upstash de pruebas. `testRepeatedTransitions` sigue `currentTurnIndex`, registra las esperas antes de emitir, persiste tres palabras y un voto, y compara fase y arrays completos tras el rechazo. La comprobación aislada cubre los tres turnos iniciales y detecta borrados de palabras/votos y cambios de autor/orden. Las 20 ejecuciones documentadas anteriormente correspondían a la versión previa de la prueba, no a esta corrección. La auditoría trasladada a S4.1 y la invalidación durante la publicación mantienen su alcance documentado.
 **Objetivo:** impedir la suplantación y la exposición de información privada, proteger la integridad de las partidas y mejorar su recuperación ante desconexiones.
 **Arquitectura:** conservar Vue, Pinia, Express, Socket.IO y Upstash Redis. Aplicar controles en el servidor, separar los datos públicos de los privados y hacer atómicas las modificaciones de cada sala.
@@ -105,39 +105,41 @@ El cierre de cada sprint requiere sus pruebas y criterios de aceptación. La pub
 
 ## 5. Sprint 2 — Integridad de Redis y límites
 
-**Archivos principales:** `backend/src/game/roomsManagerRedis.ts`, `backend/src/game/types.ts`, `backend/src/index.ts` y `backend/src/constants/errors.ts`.
+**Estado:** implementación terminada el 22 de noviembre de 2026; pruebas de integración ejecutadas con el Upstash de `backend/.env.test`. Antes de publicar, desplegar sin escritores de la versión anterior: la comparación de versiones protege solo si todas las instancias usan el nuevo mecanismo. Si se operan varias instancias de Socket.IO, hará falta un adaptador compartido para propagar eventos entre ellas; los datos en Redis son coherentes, pero las emisiones actuales son locales al proceso.
+
+**Archivos principales:** `backend/src/game/roomsManagerRedis.ts`, `backend/src/game/roomStore.ts`, `backend/src/game/lua.ts`, `backend/src/game/types.ts`, `backend/src/index.ts`, `backend/src/rateLimit.ts`, `backend/src/config/index.ts`, `backend/src/constants/validation.ts`, y configuración de URL del frontend.
 
 ### S2.1 — Hacer atómicas las mutaciones · DATA-01
 
-- [ ] Añadir pruebas concurrentes de incorporación, votación y reconexión/desconexión.
-- [ ] Separar las lecturas de las mutaciones: consultar una sala no debe reescribir un snapshot completo ni renovar su TTL sin motivo.
-- [ ] Introducir una versión de sala y una escritura condicional atómica en Redis, con relectura y reintentos acotados ante conflictos; tratar salas antiguas sin versión de forma explícita.
-- [ ] Verificar el mecanismo con la versión instalada de Upstash. Una secuencia `GET`/`SET`, un pipeline o un mutex dentro de un único proceso no resuelven por sí solos el problema entre instancias.
-- [ ] Reservar la sala mediante `SET NX` con TTL y reintentar ante una colisión de código.
-- [ ] Incluir borrado, poda y desconexión en el control de concurrencia para impedir que una escritura tardía resucite una sala eliminada.
-- [ ] Emitir eventos solo tras confirmar la mutación persistida; asegurar que los reintentos no duplican efectos.
+- [x] Añadir pruebas concurrentes de incorporación, votación, reconexión/desconexión y duplicados.
+- [x] Separar lecturas y mutaciones: `getRoom` ya no guarda snapshots ni renueva TTL.
+- [x] Usar versión e identidad de sala con comparación y escritura atómicas en Lua; releer y reintentar hasta 16 veces con espera acotada. Los snapshots previos sin versión migran en la primera mutación.
+- [x] Comprobar el script con la versión instalada de `@upstash/redis` en Redis de pruebas. Lua decodifica solo los metadatos y guarda el JSON producido por JavaScript para conservar `null` y `[]`.
+- [x] Reservar códigos con `SET NX` y TTL en una operación atómica; reintentar una colisión.
+- [x] Incluir desconexión, poda y borrado en la comparación atómica. Una sala vacía se borra; una escritura tardía no la recrea ni afecta una sala que reutilice su código.
+- [x] Emitir eventos después de confirmar la mutación. Un voto lleva `voteEpoch`; un duplicado de la papeleta anterior no entra en un desempate.
 
-**Aceptación:** dos incorporaciones simultáneas conservan a los tres jugadores; dos votos distintos se conservan; una acción duplicada no cuenta dos veces; una sala eliminada no reaparece. Ejecutar además estas pruebas contra un Redis de prueba antes de cerrar la tarea.
+**Aceptación comprobada:** incorporaciones simultáneas conservan todos los jugadores; votos concurrentes distintos se guardan; duplicados no cuentan dos veces; reconexión simultánea con desconexión antigua conserva la nueva conexión; una sala eliminada no reaparece.
 
 ### S2.2 — Validar y limitar entradas · SEC-04
 
-- [ ] Validar objetos y tipos en ejecución antes de acceder a Redis; TypeScript no valida mensajes recibidos.
-- [ ] Validar código, token, identificadores, `mode`, nombre y palabra. Rechazar campos inválidos con errores estables.
-- [ ] Propuesta inicial configurable: nombre de 1–30 caracteres tras `trim`, palabra de 1–80 y máximo de 12 jugadores por sala. Cubrir límites exactos y modo manual.
-- [ ] Añadir límites diferenciados para creación, incorporación, reconexión, consulta de existencia y acciones de juego; documentar umbrales tras medir un flujo normal con varios jugadores detrás de una misma IP.
-- [ ] Aplicar las cuotas relevantes entre instancias y limitar también el tamaño de mensajes de Socket.IO.
-- [ ] Mantener códigos actuales inicialmente; mitigar enumeración con validación y cuotas. Evaluar mayor longitud como cambio de compatibilidad separado si las métricas lo justifican.
+- [x] Validar objetos, tipos y eventos en ejecución antes de acceder a Redis mediante `validateEvent`.
+- [x] Validar código, token, identificadores, modo, nombre, palabra y época de voto; rechazar entradas inválidas con códigos estables.
+- [x] Límites configurables: nombre 1–30, palabra 1–80 y máximo 12 jugadores por sala; las reconexiones válidas funcionan en una sala llena.
+- [x] Cuotas diferenciadas de creación, incorporación, reconexión, consulta, handshake y acciones de juego. Valores iniciales: creación 6/socket y 120/IP por 10 minutos; incorporación y reconexión 30/socket y 240/IP por minuto; consultas 180/IP por minuto; acciones 120/socket, 1200/IP y 600/sala por minuto. La cuota de sala se aplica solo al socket asociado a ella. Probado flujo de 12 jugadores detrás de una IP; ajustar umbrales con métricas reales.
+- [x] Cuotas compartidas entre instancias con Lua y tamaño máximo de paquete Socket.IO de 4096 bytes. Ráfaga local: 20 mensajes/segundo y 8 solicitudes pendientes por socket.
+- [x] Conservar códigos actuales y mitigar enumeración con validación y cuota. Una longitud mayor sería un cambio de compatibilidad separado.
 
-**Aceptación:** entradas vacías, objetos inesperados y mensajes excesivos no se guardan ni se retransmiten. Las cuotas se comprueban antes del trabajo costoso, devuelven un error recuperable y no bloquean una partida normal compartiendo IP.
+**Aceptación comprobada:** entradas vacías y mensajes demasiado grandes no se guardan ni retransmiten. Una cuota agotada devuelve `RATE_LIMITED` o HTTP 429 con `Retry-After`, y se recupera al vencer la ventana. Las solicitudes ajenas no consumen la cuota colectiva de la sala.
 
 ### S2.3 — Revisar handshake y configuración · OPS-01
 
-- [ ] Validar el origen en el handshake mediante el mecanismo adecuado de Socket.IO; documentar la política para conexiones sin `Origin`.
-- [ ] Separar orígenes de desarrollo y producción mediante configuración.
-- [ ] Probar polling y WebSocket directo desde un origen admitido y otro rechazado.
-- [ ] Validar configuración requerida al arrancar sin imprimir credenciales; evitar fallback silencioso a localhost en un frontend de producción mal configurado.
+- [x] Usar `allowRequest` para controlar ambos transportes; en producción, rechazar conexiones sin `Origin`. Los clientes sin navegador no quedan autenticados por el `Origin` y deben superar igualmente los permisos de juego.
+- [x] Separar orígenes mediante `ALLOWED_ORIGINS`; en desarrollo se admite `http://localhost:5173` por defecto. `TRUSTED_PROXY_IPS` permite confiar explícitamente en proxies concretos para identificar la IP del cliente.
+- [x] Probar polling y WebSocket directo con origen admitido, rechazado y ausente.
+- [x] Validar URL/token de Redis y configuración al arrancar. Un build de producción del frontend exige `VITE_BACKEND_URL` con origen HTTPS puro; el cliente no usa localhost silenciosamente en producción.
 
-**Aceptación:** la política de origen funciona en ambos transportes. Los permisos del sprint 1 siguen siendo obligatorios, incluso con un origen permitido o falsificado por un cliente no navegador.
+**Verificación:** `backend/src/__tests__/atomicity.test.ts` y `backend/src/__tests__/sprint2.test.ts` cubren las pruebas contra Upstash independiente; `backend/src/__tests__/security.test.ts` protege el sprint 1. Los scripts `npm run test:atomicity` y `npm run test:sprint2` requieren `backend/.env.test`, ignorado por Git. La auditoría de producción y el despliegue siguen siendo acciones separadas.
 
 ## 6. Sprint 3 — Salida, desconexión y reconexión
 
@@ -236,6 +238,6 @@ Para cerrar cada tarea:
 | Sprint | Estado | Evidencia de cierre | Riesgos o bloqueos |
 | --- | --- | --- | --- |
 | 1 | Completado | `tsc --noEmit` y `type-check` sin errores; **11/11 pruebas de integración pasadas con la prueba corregida el 21 de noviembre de 2026** (`test:security`; una ejecución completa): revocación de socket por `rejoinRoom` y `joinRoom` con `playerToken` (rama `joinOrRejoinRoom`), privacidad en `roomJoined` (ruta `room.players` corregida, campos exigidos) y `playersUpdated`, permisos en `submitWord`/`submitVote`/`startNextRound`, rechazo de jugador desconectado (prueba directa del gestor vía manipulación de Redis: `socketId=null` con `submitWord` en fase words; aserciones dentro de `try/finally` para garantizar restauración), redacción de errores (caso conocido con igualdad exacta `message === code` + caso de error interno inesperado corrompiendo Redis que verifica `{code: "UNKNOWN"}` sin exponer marcador sensible), transiciones inválidas y transiciones repetidas (rechazo con `NOT_REVEAL_ROUND`; fase, palabras y votos en Redis intactos antes/después); `socketMap` en pruebas usa `playerId` individuales de cada `roomJoined`; aislamiento garantizado (`loadTestEnv` no hereda `process.env`, backend en puerto libre vía `findFreePort`); `.env.test` en `.gitignore` con plantilla `.env.test.example`; estrategia de invalidación durante el despliegue documentada | Invalidación de tokens expuestos: se ejecutará durante la ventana de mantenimiento al publicar. La casilla "Comprobar fase, pertenencia y permisos en todas las acciones" (S1.2) se traslada a S4.1. |
-| 2 | Pendiente | — | Requiere Redis de prueba y verificación del mecanismo atómico. Nota: `SET NX` solo sirve para reservar códigos nuevos; actualizar salas existentes requiere versión + escritura condicional atómica (Lua scripts en Upstash). |
+| 2 | Implementación verificada | Upstash de pruebas: 11 pruebas de atomicidad y 6 de seguridad/operación; regresión Sprint 1: 11/11; tipos y builds de backend/frontend correctos. | Desplegar sin instancias escritoras de la versión anterior. Ajustar cuotas con métricas reales. Publicación pendiente de autorización. |
 | 3 | Pendiente | — | Confirmar política propuesta de gestión de ausentes |
 | 4 | Pendiente | — | Auditoría npm requiere red; despliegue aún no inspeccionado |

@@ -54,6 +54,10 @@ export interface VoteEntry {
 }
 
 export interface Room {
+  /** Ausentes en snapshots anteriores al sprint 2; se migran en la primera mutación. */
+  version?: number;
+  voteEpoch?: number;
+  instanceId?: string;
   code: string;
   mode: GameMode;
   players: Player[];

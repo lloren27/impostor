@@ -75,6 +75,7 @@ export function useGameSocket() {
       if (state.mode) gameStore.mode = state.mode
       if (Array.isArray(state.players)) gameStore.updatePlayers(state.players)
 
+      gameStore.voteEpoch = state.voteEpoch ?? 0
       if (state.phase) {
         gameStore.setPhase(state.phase, state.currentRound)
       }
@@ -122,17 +123,20 @@ export function useGameSocket() {
         players,
         roomCode,
         currentRound,
+        voteEpoch,
         mode,
       }: {
         phase: GamePhase
         players: any[]
         roomCode: string
         currentRound?: number
+        voteEpoch?: number
         mode: GameMode
       }) => {
         gameStore.roomCode = roomCode
         gameStore.updatePlayers(players)
         gameStore.setPhase(phase, currentRound)
+        gameStore.voteEpoch = voteEpoch ?? 0
         if (mode) gameStore.mode = mode
 
         gameStore.resetWords()
@@ -146,8 +150,9 @@ export function useGameSocket() {
       },
     )
 
-    socket.on('phaseChanged', ({ phase, currentRound }) => {
+    socket.on('phaseChanged', ({ phase, currentRound, voteEpoch }) => {
       gameStore.setPhase(phase, currentRound)
+      if (voteEpoch !== undefined) gameStore.voteEpoch = voteEpoch
 
       if (phase === 'words') {
         gameStore.resetWords()
@@ -178,7 +183,8 @@ export function useGameSocket() {
       gameStore.setLastRoundResult(payload)
     })
 
-    socket.on('tieVote', ({ tieCandidates }) => {
+    socket.on('tieVote', ({ tieCandidates, voteEpoch }) => {
+      gameStore.voteEpoch = voteEpoch ?? 0
       // S1.1: tieCandidates vienen como PublicPlayer[] del backend
       const mapped = tieCandidates.map((p: any) => ({
         id: p.id,

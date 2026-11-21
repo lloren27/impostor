@@ -1,4 +1,5 @@
-import "dotenv/config";
+import { settings, originAllowed } from "./config";
+import { consumeRate, clientIP, RateGroup } from "./rateLimit";
 
 import express from "express";
 import http from "http";
@@ -22,15 +23,18 @@ import {
 } from "./game/roomsManagerRedis";
 import { KNOWN_ERROR_CODES } from "./constants/errors";
 import { GameMode, toPublicPlayer } from "./game/types";
+import {
+  validateEvent,
+  validateName,
+  validateWord,
+  validateRoomCode,
+  validatePlayerToken,
+  validateMode,
+  validatePlayerId,
+} from "./constants/validation";
 
-const PORT = process.env.PORT || 4000;
-
-const allowedOrigins = [
-  "http://localhost:5173",
-  "https://impostor-frontend.onrender.com",
-  "https://eljuegodelimpostor.es",
-  "https://www.eljuegodelimpostor.es",
-];
+const PORT = settings.port;
+const allowedOrigins = settings.origins;
 
 const app = express();
 
@@ -50,26 +54,30 @@ app.get("/health", (_req, res) => {
 // Endpoint para comprobar si existe una sala
 app.get("/rooms/:code", async (req, res) => {
   try {
-    const code = req.params.code.toUpperCase();
+    const code = validateRoomCode(req.params.code);
+    await consumeRate("lookup", clientIP(req));
     const room = await getRoom(code);
 
     if (!room) return res.status(404).json({ exists: false });
     return res.json({ exists: true, code });
   } catch (err) {
     logError("GET /rooms/:code", err);
-    return res.status(500).json({ exists: false });
+    const code = getErrorCode(err);
+    if (code === "RATE_LIMITED") res.setHeader("Retry-After", "60");
+    return res.status(code === "RATE_LIMITED" ? 429 : code === "INVALID_ROOM_CODE" ? 400 : 503).json({ exists: false, code });
   }
 });
 
 const server = http.createServer(app);
 
 const io = new SocketIOServer(server, {
-  cors: {
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) callback(null, true);
-      else callback(new Error("Not allowed by CORS"));
-    },
-    credentials: true,
+  cors: { origin: allowedOrigins, credentials: true },
+  maxHttpBufferSize: 4096,
+  allowRequest: (req, callback) => {
+    if (!originAllowed(req.headers.origin)) { callback(null, false); return; }
+    consumeRate("handshake", clientIP(req)).then(
+      () => callback(null, true), () => callback(null, false),
+    );
   },
   pingInterval: 10000,
   pingTimeout: 20000,
@@ -111,6 +119,7 @@ function emitRoomStateToSocket(socket: any, room: any) {
     currentRound: room.currentRound,
     words: room.words,
     tieCandidates: room.tieCandidates,
+    voteEpoch: room.voteEpoch ?? 0,
     winner: room.winner,
     currentPlayerId:
       room.phase === "words" && room.baseOrder?.length
@@ -133,9 +142,23 @@ function emitRoleIfKnown(socket: any, room: any, playerId: string) {
 }
 
 io.on("connection", (socket) => {
-  // S1.3: loguear solo evento y metadatos, sin el payload completo (puede contener tokens)
-  socket.onAny((event, ..._args) => {
-    console.log("[socket]", event, "from", socket.id);
+  // Rechazar antes de Redis los mensajes malformados y ráfagas locales.
+  let windowStart = Date.now();
+  let messages = 0;
+  let pending = 0;
+  socket.use((packet, next) => {
+    if (Date.now() - windowStart >= 1000) { windowStart = Date.now(); messages = 0; }
+    if (++messages > 20 || pending >= 8) { safeEmitError(socket, new Error("RATE_LIMITED")); return; }
+    let payload: Record<string, unknown>;
+    try { payload = validateEvent(packet[0], packet[1]); }
+    catch (err) { safeEmitError(socket, err); return; }
+    const event = packet[0];
+    const group: RateGroup = ["createRoom", "joinRoom", "rejoinRoom"].includes(event) ? event as RateGroup : "game";
+    pending++;
+    consumeRate(group, clientIP(socket.request), socket.id, group === "game" && socket.data.roomCode === payload.roomCode && socket.data.playerId ? payload.roomCode as string : undefined)
+      .then(() => { if (socket.connected) { packet[1] = payload; next(); } })
+      .catch(err => safeEmitError(socket, err))
+      .finally(() => { pending--; });
   });
 
   // ✅ REJOIN (Redis)
@@ -143,7 +166,9 @@ io.on("connection", (socket) => {
     "rejoinRoom",
     async (payload: { roomCode: string; playerToken: string }) => {
       try {
-        const { roomCode, playerToken } = payload;
+        // S2.2: validar entradas antes de acceder a Redis
+        const roomCode = validateRoomCode(payload.roomCode);
+        const playerToken = validatePlayerToken(payload.playerToken);
 
         const { room, player, oldSocketId } = await rejoinRoom(
           roomCode.toUpperCase(),
@@ -202,7 +227,9 @@ io.on("connection", (socket) => {
     "createRoom",
     async (payload: { name: string; mode?: GameMode }) => {
       try {
-        const { name, mode } = payload;
+        // S2.2: validar entradas
+        const name = validateName(payload.name);
+        const mode = payload.mode ? validateMode(payload.mode) : "classic";
         const { room, player } = await createRoom(socket.id, name, mode);
 
         // S1.2: asociar identidad al socket
@@ -246,7 +273,12 @@ io.on("connection", (socket) => {
       playerToken?: string;
     }) => {
       try {
-        const { roomCode, name, playerToken } = payload;
+        // S2.2: validar entradas
+        const roomCode = validateRoomCode(payload.roomCode);
+        const name = validateName(payload.name);
+        const playerToken = payload.playerToken
+          ? validatePlayerToken(payload.playerToken)
+          : undefined;
 
         const { room, player, isRejoin, oldSocketId } = await joinOrRejoinRoom(
           roomCode.toUpperCase(),
@@ -306,7 +338,8 @@ io.on("connection", (socket) => {
 
   socket.on("startGame", async (payload: { roomCode: string }) => {
     try {
-      const { roomCode } = payload;
+      // S2.2: validar entradas
+      const roomCode = validateRoomCode(payload.roomCode);
 
       const { room: updatedRoom, roles } = await startGame(
         roomCode.toUpperCase(),
@@ -328,6 +361,7 @@ io.on("connection", (socket) => {
         phase: updatedRoom.phase,
         players: updatedRoom.players.map(toPublicPlayer),
         currentRound: updatedRoom.currentRound,
+        voteEpoch: updatedRoom.voteEpoch ?? 0,
       });
     } catch (err: any) {
       logError("startGame", err);
@@ -337,7 +371,8 @@ io.on("connection", (socket) => {
 
   socket.on("startWordsRound", async (payload: { roomCode: string }) => {
     try {
-      const { roomCode } = payload;
+      // S2.2: validar entradas
+      const roomCode = validateRoomCode(payload.roomCode);
 
       const { room: updatedRoom, currentPlayerId } = await startWordsRound(
         roomCode.toUpperCase(),
@@ -347,6 +382,7 @@ io.on("connection", (socket) => {
       io.to(updatedRoom.code).emit("phaseChanged", {
         phase: updatedRoom.phase,
         currentRound: updatedRoom.currentRound,
+        voteEpoch: updatedRoom.voteEpoch ?? 0,
       });
 
       io.to(updatedRoom.code).emit("playersUpdated", {
@@ -365,7 +401,10 @@ io.on("connection", (socket) => {
     "submitWord",
     async (payload: { roomCode: string; playerId: string; word: string }) => {
       try {
-        const { roomCode, playerId, word } = payload;
+        // S2.2: validar entradas
+        const roomCode = validateRoomCode(payload.roomCode);
+        const playerId = validatePlayerId(payload.playerId);
+        const word = validateWord(payload.word);
 
         // S1.2: verificar que el socket está asociado al playerId
         const associatedPlayerId = socket.data.playerId;
@@ -408,9 +447,14 @@ io.on("connection", (socket) => {
       roomCode: string;
       voterId: string;
       targetId: string;
+      voteEpoch?: number;
     }) => {
       try {
-        const { roomCode, voterId, targetId } = payload;
+        // S2.2: validar entradas
+        const roomCode = validateRoomCode(payload.roomCode);
+        const voterId = validatePlayerId(payload.voterId);
+        const targetId = validatePlayerId(payload.targetId);
+        const voteEpoch = payload.voteEpoch ?? 0;
 
         // S1.2: verificar que el socket está asociado al voterId
         const associatedPlayerId = socket.data.playerId;
@@ -430,7 +474,8 @@ io.on("connection", (socket) => {
           roomCode.toUpperCase(),
           voterId,
           socket.id,
-          targetId
+          targetId,
+          voteEpoch
         );
 
         if (!finishedVoting) {
@@ -438,6 +483,7 @@ io.on("connection", (socket) => {
             // S1.1: tieVote con versión pública
             io.to(updatedRoom.code).emit("tieVote", {
               tieCandidates: tieCandidates.map(toPublicPlayer),
+              voteEpoch: updatedRoom.voteEpoch ?? 0,
             });
             io.to(updatedRoom.code).emit("playersUpdated", {
               players: updatedRoom.players.map(toPublicPlayer),
@@ -476,21 +522,14 @@ io.on("connection", (socket) => {
 
   socket.on("startNextRound", async (payload: { roomCode: string }) => {
     try {
-      const { roomCode } = payload;
+      const roomCode = validateRoomCode(payload.roomCode);
 
-      // S1.2: startNextRound requiere anfitrión
-      const room = await getRoom(roomCode.toUpperCase());
-      if (!room) throw new Error("ROOM_NOT_FOUND");
-      const caller = room.players.find((p) => p.socketId === socket.id);
-      if (!caller || !caller.isHost) throw new Error("ONLY_HOST_CAN_START");
-
-      const { room: updatedRoom, currentPlayerId } = await startNextRound(
-        roomCode.toUpperCase()
-      );
+      const { room: updatedRoom, currentPlayerId } = await startNextRound(roomCode, socket.id);
 
       io.to(updatedRoom.code).emit("phaseChanged", {
         phase: updatedRoom.phase,
         currentRound: updatedRoom.currentRound,
+        voteEpoch: updatedRoom.voteEpoch ?? 0,
       });
 
       io.to(updatedRoom.code).emit("playersUpdated", {
@@ -506,7 +545,7 @@ io.on("connection", (socket) => {
 
   socket.on("restartGame", async (payload: { roomCode: string }) => {
     try {
-      const { roomCode } = payload;
+      const roomCode = validateRoomCode(payload.roomCode);
 
       // restartGame ya valida host dentro
       const { room: updatedRoom, roles } = await restartGame(
@@ -529,6 +568,7 @@ io.on("connection", (socket) => {
         phase: updatedRoom.phase,
         players: updatedRoom.players.map(toPublicPlayer),
         currentRound: updatedRoom.currentRound,
+        voteEpoch: updatedRoom.voteEpoch ?? 0,
       });
     } catch (err: any) {
       logError("restartGame", err);
@@ -538,16 +578,10 @@ io.on("connection", (socket) => {
 
   socket.on("endGame", async (payload: { roomCode: string }) => {
     try {
-      const { roomCode } = payload;
+      const roomCode = validateRoomCode(payload.roomCode);
 
-      const room = await getRoom(roomCode.toUpperCase());
-      if (!room) throw new Error("ROOM_NOT_FOUND");
-
-      const player = room.players.find((p) => p.socketId === socket.id);
-      if (!player || !player.isHost) throw new Error("ONLY_HOST_CAN_END_GAME");
-
-      io.to(room.code).emit("roomEnded");
-      await deleteRoom(room.code);
+      await deleteRoom(roomCode, socket.id);
+      io.to(roomCode).emit("roomEnded");
     } catch (err: any) {
       logError("endGame", err);
       safeEmitError(socket, err, "UNKNOWN");
@@ -573,5 +607,6 @@ io.on("connection", (socket) => {
 });
 
 server.listen(Number(PORT), "0.0.0.0", () => {
-  console.log(`Servidor escuchando en puerto ${PORT}`);
+  const address = server.address();
+  console.log(`Servidor escuchando en puerto ${typeof address === "object" && address ? address.port : PORT}`);
 });

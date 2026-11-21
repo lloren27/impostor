@@ -10,6 +10,7 @@ export const useGameStore = defineStore('game', {
     me: null,
     phase: 'lobby',
     currentRound: 0,
+    voteEpoch: 0,
     players: [],
     currentPlayerId: null,
     words: [],
@@ -71,6 +72,7 @@ export const useGameStore = defineStore('game', {
 
       this.phase = payload.room.phase
       this.currentRound = payload.room.currentRound ?? 0
+      this.voteEpoch = payload.room.voteEpoch ?? 0
 
       localStorage.setItem(
         'impostor-session',

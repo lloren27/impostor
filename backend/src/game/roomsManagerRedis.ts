@@ -1,30 +1,10 @@
 import crypto from "crypto";
-import { Redis } from "@upstash/redis";
 import { CHARACTERS } from "./characters";
 import { Player, Room } from "./types";
-
-// Soporte para DOTENV_CONFIG_PATH: si está definida (ej. desde las pruebas),
-// carga el archivo especificado en vez de .env por defecto.
-const dotenvPath = process.env.DOTENV_CONFIG_PATH;
-if (dotenvPath) {
-  require("dotenv").config({ path: dotenvPath });
-} else {
-  require("dotenv").config();
-}
-
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
-
-// TTLs
-const ROOM_TTL_SECONDS = 60 * 60 * 2; // 2h
-const ROOM_EMPTY_TTL_SECONDS = 60 * 10; // 10min cuando nadie está conectado
-const DISCONNECT_GRACE_MS = 2 * 60 * 1000; // 2 minutos (ajusta)
-
-function roomKey(code: string) {
-  return `room:${code.toUpperCase()}`;
-}
+import { atomicCreateRoomScript } from "./lua";
+import { readRoom, updateRoom, roomKey, ROOM_TTL_SECONDS } from "./roomStore";
+import { MAX_PLAYERS_PER_ROOM } from "../constants/validation";
+const DISCONNECT_GRACE_MS = 2 * 60 * 1000;
 
 function generatePlayerToken(): string {
   return (
@@ -78,52 +58,31 @@ function generateRoomCode(): string {
   return code;
 }
 
-async function loadRoom(roomCode: string): Promise<Room | null> {
-  const room = await redis.get<Room>(roomKey(roomCode));
-  if (!room) return null;
-
-  pruneDisconnected(room);
-
-  // Si tras prune no queda nadie, puedes borrar la sala
-  if (room.players.length === 0) {
-    await redis.del(roomKey(room.code));
-    return null;
-  }
-
-  // Persistimos el prune (importante)
-  await saveRoom(
-    room,
-    room.players.some((p) => p.connected)
-      ? ROOM_TTL_SECONDS
-      : ROOM_EMPTY_TTL_SECONDS
-  );
-
-  return room;
-}
-
-async function saveRoom(
-  room: Room,
-  ttlSeconds = ROOM_TTL_SECONDS
-): Promise<void> {
-  await redis.set(roomKey(room.code), room, { ex: ttlSeconds });
-}
-
 export async function getRoom(roomCode: string): Promise<Room | undefined> {
-  const room = await loadRoom(roomCode);
-  return room ?? undefined;
+  return (await readRoom(roomCode)) ?? undefined;
 }
 
-export async function deleteRoom(roomCode: string): Promise<void> {
-  await redis.del(roomKey(roomCode));
+export async function deleteRoom(roomCode: string, callerSocketId: string): Promise<void> {
+  await updateRoom(roomCode, room => {
+    const caller = room.players.find(p => p.socketId === callerSocketId);
+    if (!caller?.isHost) throw new Error("ONLY_HOST_CAN_END_GAME");
+  }, { remove: true });
 }
 
-async function createUniqueRoomCode(): Promise<string> {
-  for (let i = 0; i < 30; i++) {
-    const code = generateRoomCode();
-    const exists = await redis.exists(roomKey(code));
-    if (!exists) return code;
-  }
-  throw new Error("COULD_NOT_GENERATE_ROOM_CODE");
+/**
+ * Crea una sala atómicamente con SET NX.
+ * Si el código ya existe, reintenta con otro código.
+ */
+async function atomicCreateRoom(
+  code: string,
+  room: Room,
+  ttlSeconds: number
+): Promise<boolean> {
+  const result = await atomicCreateRoomScript.exec(
+    [roomKey(code)],
+    [JSON.stringify(room), String(ttlSeconds)]
+  );
+  return result === "OK";
 }
 
 function syncSocketId(player: Player, socketId: string) {
@@ -135,41 +94,51 @@ export async function createRoom(
   hostName: string,
   mode: "classic" | "manual" = "classic"
 ): Promise<{ room: Room; player: Player }> {
-  const code = await createUniqueRoomCode();
+  // S2.1: crear sala atómicamente con SET NX para evitar colisiones de código
+  for (let i = 0; i < 30; i++) {
+    const code = generateRoomCode();
 
-  const hostPlayer: Player = {
-    id: generatePlayerId(),
-    token: generatePlayerToken(),
-    socketId: hostSocketId,
-    name: hostName,
-    isHost: true,
-    isImpostor: false,
-    character: null,
-    alive: true,
-    connected: true,
-    disconnectedAt: null,
-    joinedAt: Date.now(),
-  };
+    const hostPlayer: Player = {
+      id: generatePlayerId(),
+      token: generatePlayerToken(),
+      socketId: hostSocketId,
+      name: hostName,
+      isHost: true,
+      isImpostor: false,
+      character: null,
+      alive: true,
+      connected: true,
+      disconnectedAt: null,
+      joinedAt: Date.now(),
+    };
 
-  const room: Room = {
-    code,
-    mode,
-    players: [hostPlayer],
-    phase: "lobby",
-    character: null,
-    impostorId: null,
-    currentRound: 0,
-    baseOrder: [],
-    roundStartIndex: 0,
-    currentTurnIndex: 0,
-    words: [],
-    votes: [],
-    winner: null,
-    tieCandidates: null,
-  };
+    const room: Room = {
+      code,
+      version: 0,
+      voteEpoch: 0,
+      instanceId: crypto.randomUUID(),
+      mode,
+      players: [hostPlayer],
+      phase: "lobby",
+      character: null,
+      impostorId: null,
+      currentRound: 0,
+      baseOrder: [],
+      roundStartIndex: 0,
+      currentTurnIndex: 0,
+      words: [],
+      votes: [],
+      winner: null,
+      tieCandidates: null,
+    };
 
-  await saveRoom(room);
-  return { room, player: hostPlayer };
+    const created = await atomicCreateRoom(code, room, ROOM_TTL_SECONDS);
+    if (created) {
+      return { room, player: hostPlayer };
+    }
+    // Código ya existe, intentar con otro
+  }
+  throw new Error("COULD_NOT_GENERATE_ROOM_CODE");
 }
 
 export async function joinRoom(
@@ -177,28 +146,30 @@ export async function joinRoom(
   socketId: string,
   name: string
 ): Promise<{ room: Room; player: Player }> {
-  const room = await loadRoom(roomCode);
-  if (!room) throw new Error("ROOM_NOT_FOUND");
-  if (room.phase !== "lobby") throw new Error("GAME_ALREADY_STARTED");
+  return updateRoom(roomCode, room => {
+    pruneDisconnected(room);
+    if (room.players.length === 0) throw new Error("ROOM_EMPTY");
+    if (room.phase !== "lobby") throw new Error("GAME_ALREADY_STARTED");
+    if (room.players.length >= MAX_PLAYERS_PER_ROOM) throw new Error("ROOM_FULL");
 
-  const player: Player = {
-    id: generatePlayerId(),
-    token: generatePlayerToken(),
-    socketId,
-    name,
-    isHost: false,
-    isImpostor: false,
-    character: null,
-    alive: true,
-    connected: true,
-    disconnectedAt: null,
-    joinedAt: Date.now(),
-  };
+    const player: Player = {
+      id: generatePlayerId(),
+      token: generatePlayerToken(),
+      socketId,
+      name,
+      isHost: false,
+      isImpostor: false,
+      character: null,
+      alive: true,
+      connected: true,
+      disconnectedAt: null,
+      joinedAt: Date.now(),
+    };
 
-  room.players.push(player);
-  await saveRoom(room);
+    room.players.push(player);
 
-  return { room, player };
+    return { room, player };
+  });
 }
 
 export async function joinOrRejoinRoom(
@@ -207,50 +178,50 @@ export async function joinOrRejoinRoom(
   name: string,
   playerToken?: string
 ): Promise<{ room: Room; player: Player; isRejoin: boolean; oldSocketId: string | null }> {
-  const room = await loadRoom(roomCode);
-  if (!room) throw new Error("ROOM_NOT_FOUND");
+  return updateRoom(roomCode, room => {
+    pruneDisconnected(room);
+    if (room.players.length === 0) throw new Error("ROOM_EMPTY");
 
-  // ✅ Si trae token, intenta reenganchar siempre (aunque la partida esté empezada)
-  if (playerToken) {
-    const existing = room.players.find((p) => p.token === playerToken);
-    if (existing) {
-      // S1.2: recordar el socket anterior para revocarlo en index.ts
-      const oldSocketId = existing.socketId;
+    // ✅ Si trae token, intenta reenganchar siempre (aunque la partida esté empezada)
+    if (playerToken) {
+      const existing = room.players.find((p) => p.token === playerToken);
+      if (existing) {
+        // S1.2: recordar el socket anterior para revocarlo en index.ts
+        const oldSocketId = existing.socketId;
 
-      syncSocketId(existing, socketId);
-      existing.connected = true;
-      existing.disconnectedAt = null;
+        syncSocketId(existing, socketId);
+        existing.connected = true;
+        existing.disconnectedAt = null;
 
-      // Si ha cambiado nombre, opcionalmente lo actualizas:
-      if (name && existing.name !== name) existing.name = name;
-
-      await saveRoom(room, ROOM_TTL_SECONDS);
-      return { room, player: existing, isRejoin: true, oldSocketId };
+        // Si ha cambiado nombre, opcionalmente lo actualizas:
+        if (name && existing.name !== name) existing.name = name;
+        return { room, player: existing, isRejoin: true, oldSocketId };
+      }
+      // Si el token no existe en la sala, seguimos como join normal
     }
-    // Si el token no existe en la sala, seguimos como join normal (o puedes lanzar PLAYER_NOT_FOUND)
-  }
 
-  // ❌ Si NO hay token y la partida ya empezó: fuera
-  if (room.phase !== "lobby") throw new Error("GAME_ALREADY_STARTED");
+    // ❌ Si NO hay token y la partida ya empezó: fuera
+    if (room.phase !== "lobby") throw new Error("GAME_ALREADY_STARTED");
+    if (room.players.length >= MAX_PLAYERS_PER_ROOM) throw new Error("ROOM_FULL");
 
-  const player: Player = {
-    id: generatePlayerId(),
-    token: generatePlayerToken(),
-    socketId,
-    name,
-    isHost: false,
-    isImpostor: false,
-    character: null,
-    alive: true,
-    connected: true,
-    disconnectedAt: null,
-    joinedAt: Date.now(),
-  };
+    const player: Player = {
+      id: generatePlayerId(),
+      token: generatePlayerToken(),
+      socketId,
+      name,
+      isHost: false,
+      isImpostor: false,
+      character: null,
+      alive: true,
+      connected: true,
+      disconnectedAt: null,
+      joinedAt: Date.now(),
+    };
 
-  room.players.push(player);
-  await saveRoom(room);
+    room.players.push(player);
 
-  return { room, player, isRejoin: false, oldSocketId: null };
+    return { room, player, isRejoin: false, oldSocketId: null };
+  });
 }
 
 export async function rejoinRoom(
@@ -258,45 +229,42 @@ export async function rejoinRoom(
   token: string,
   newSocketId: string
 ): Promise<{ room: Room; player: Player; oldSocketId: string | null }> {
-  const room = await loadRoom(roomCode);
-  if (!room) throw new Error("ROOM_NOT_FOUND");
+  return updateRoom(roomCode, room => {
+    pruneDisconnected(room);
+    if (room.players.length === 0) throw new Error("ROOM_EMPTY");
 
-  const player = room.players.find((p) => p.token === token);
-  if (!player) throw new Error("PLAYER_NOT_FOUND");
+    const player = room.players.find((p) => p.token === token);
+    if (!player) throw new Error("PLAYER_NOT_FOUND");
 
-  // S1.2: recordar el socket anterior para revocarlo en index.ts
-  const oldSocketId = player.socketId;
+    // S1.2: recordar el socket anterior para revocarlo en index.ts
+    const oldSocketId = player.socketId;
 
-  syncSocketId(player, newSocketId);
-  player.connected = true;
-  player.disconnectedAt = null;
-
-  await saveRoom(room, ROOM_TTL_SECONDS);
-  return { room, player, oldSocketId };
+    syncSocketId(player, newSocketId);
+    player.connected = true;
+    player.disconnectedAt = null;
+    return { room, player, oldSocketId };
+  });
 }
 
 export async function markPlayerDisconnected(
   roomCode: string,
   socketId: string
 ) {
-  const room = await loadRoom(roomCode);
-  if (!room) return;
+  return updateRoom(roomCode, room => {
+    pruneDisconnected(room);
+    if (room.players.length === 0) throw new Error("ROOM_EMPTY");
 
-  const player = room.players.find((p) => p.socketId === socketId);
-  if (!player) return;
+    const player = room.players.find((p) => p.socketId === socketId);
+    if (!player) return;
 
-  player.socketId = null;
-  player.connected = false;
-  player.disconnectedAt = Date.now();
+    player.socketId = null;
+    player.connected = false;
+    player.disconnectedAt = Date.now();
 
-  // Reasignación host “si hace falta” (pero solo a conectados)
-  ensureHost(room);
+    // Reasignación host "si hace falta" (pero solo a conectados)
+    ensureHost(room);
 
-  const anyConnected = room.players.some((p) => p.connected);
-  await saveRoom(
-    room,
-    anyConnected ? ROOM_TTL_SECONDS : ROOM_EMPTY_TTL_SECONDS
-  );
+  }, { missingOk: true });
 }
 
 /**
@@ -304,9 +272,12 @@ export async function markPlayerDisconnected(
  * -> en Redis significa: refrescar TTL largo.
  */
 export async function cancelRoomDeletion(roomCode: string): Promise<void> {
-  const room = await loadRoom(roomCode);
-  if (!room) return;
-  await saveRoom(room, ROOM_TTL_SECONDS);
+  return updateRoom(roomCode, room => {
+    pruneDisconnected(room);
+    if (room.players.length === 0) throw new Error("ROOM_EMPTY");
+
+    room.version = room.version ?? 0;
+  }, { missingOk: true, refresh: true });
 }
 
 export async function startGame(
@@ -321,13 +292,19 @@ export async function startGame(
     character: string | null;
   }[];
 }> {
-  const room = await loadRoom(roomCode);
-  if (!room) throw new Error("ROOM_NOT_FOUND");
-  if (room.phase !== "lobby") throw new Error("GAME_ALREADY_STARTED");
+  return updateRoom(roomCode, room => {
+    pruneDisconnected(room);
+    if (room.players.length === 0) throw new Error("ROOM_EMPTY");
+    if (room.phase !== "lobby") throw new Error("GAME_ALREADY_STARTED");
 
-  const caller = room.players.find((p) => p.socketId === callerSocketId);
-  if (!caller || !caller.isHost) throw new Error("ONLY_HOST_CAN_START");
+    const caller = room.players.find((p) => p.socketId === callerSocketId);
+    if (!caller || !caller.isHost) throw new Error("ONLY_HOST_CAN_START");
 
+    return assignRoles(room);
+  });
+}
+
+function assignRoles(room: Room) {
   if (room.players.length < 3) throw new Error("NOT_ENOUGH_PLAYERS");
 
   const alivePlayers = room.players.filter((p) => p.alive);
@@ -363,117 +340,56 @@ export async function startGame(
   room.roundStartIndex = 0;
   room.currentTurnIndex = 0;
 
-  await saveRoom(room);
   return { room, roles };
 }
 
 export async function restartGame(roomCode: string, callerSocketId: string) {
-  const room = await loadRoom(roomCode);
-  if (!room) throw new Error("ROOM_NOT_FOUND");
-
-  const caller = room.players.find((p) => p.socketId === callerSocketId);
-  if (!caller || !caller.isHost) throw new Error("ONLY_HOST_CAN_RESTART");
-
-  // ✅ reset común
-  room.currentRound = 0;
-  room.words = [];
-  room.votes = [];
-  room.winner = null;
-  room.character = null;
-  room.impostorId = null;
-  room.baseOrder = [];
-  room.roundStartIndex = 0;
-  room.currentTurnIndex = 0;
-  room.tieCandidates = null;
-
-  room.players.forEach((p) => {
-    p.alive = true;
-    p.isImpostor = false;
-    p.character = null;
+  return updateRoom(roomCode, room => {
+    pruneDisconnected(room);
+    if (room.players.length === 0) throw new Error("ROOM_EMPTY");
+    const caller = room.players.find(p => p.socketId === callerSocketId);
+    if (!caller?.isHost) throw new Error("ONLY_HOST_CAN_RESTART");
+    room.players.forEach(p => { p.alive = true; });
+    room.voteEpoch = (room.voteEpoch ?? 0) + 1;
+    return assignRoles(room);
   });
-
-  // ✅ comportamiento por modo
-  if (room.mode === "manual") {
-    // no vuelvas a lobby, permite restart estando ya en reveal
-    // dejamos la sala en reveal (o incluso puedes dejarla en lobby, pero UX peor)
-    room.phase = "reveal";
-    await saveRoom(room);
-    // startGame exige lobby -> NO lo llames
-    // en manual, simplemente reasignas roles aquí mismo (reutiliza lógica de startGame)
-    // => mejor: factorizar assignRoles(room)
-  } else {
-    room.phase = "lobby";
-    await saveRoom(room);
-    return startGame(roomCode, callerSocketId);
-  }
-
-  // ✅ reasignar roles en manual (copias la parte central de startGame)
-  if (room.players.length < 3) throw new Error("NOT_ENOUGH_PLAYERS");
-
-  const alivePlayers = room.players.filter((p) => p.alive);
-  const impostor = alivePlayers[Math.floor(Math.random() * alivePlayers.length)];
-  room.impostorId = impostor.id;
-
-  const character = CHARACTERS[Math.floor(Math.random() * CHARACTERS.length)];
-  room.character = character;
-
-  const roles = room.players.map((p) => {
-    const isImpostor = p.id === impostor.id;
-    p.isImpostor = isImpostor;
-    p.character = isImpostor ? null : character;
-    p.alive = true;
-
-    return {
-      playerId: p.id,
-      socketId: p.socketId,
-      isImpostor,
-      character: p.character,
-    };
-  });
-
-  room.phase = "reveal";
-  room.currentRound = 1;
-
-  await saveRoom(room);
-  return { room, roles };
 }
-
 
 export async function startWordsRound(
   roomCode: string,
   callerSocketId: string
 ): Promise<{ room: Room; currentPlayerId: string }> {
-  const room = await loadRoom(roomCode);
-  if (!room) throw new Error("ROOM_NOT_FOUND");
+  return updateRoom(roomCode, room => {
+    pruneDisconnected(room);
+    if (room.players.length === 0) throw new Error("ROOM_EMPTY");
 
-  ensureNotManual(room);
+    ensureNotManual(room);
 
-  // S1.3 (GAME-04): exigir fase reveal para startWordsRound
-  if (room.phase !== "reveal") throw new Error("NOT_REVEAL_ROUND");
+    // S1.3 (GAME-04): exigir fase reveal para startWordsRound
+    if (room.phase !== "reveal") throw new Error("NOT_REVEAL_ROUND");
 
-  const caller = room.players.find((p) => p.socketId === callerSocketId);
-  if (!caller || !caller.isHost) throw new Error("ONLY_HOST_CAN_START");
+    const caller = room.players.find((p) => p.socketId === callerSocketId);
+    if (!caller || !caller.isHost) throw new Error("ONLY_HOST_CAN_START");
 
-  const alive = room.players.filter((p) => p.alive);
-  if (alive.length < 2) throw new Error("NOT_ENOUGH_ALIVE_PLAYERS");
+    const alive = room.players.filter((p) => p.alive);
+    if (alive.length < 2) throw new Error("NOT_ENOUGH_ALIVE_PLAYERS");
 
-  room.phase = "words";
-  room.words = [];
-  room.votes = [];
+    room.phase = "words";
+    room.words = [];
+    room.votes = [];
 
-  room.baseOrder = alive.map((p) => p.id);
+    room.baseOrder = alive.map((p) => p.id);
 
-  if (room.currentRound === 1) {
-    room.roundStartIndex = Math.floor(Math.random() * room.baseOrder.length);
-  } else {
-    room.roundStartIndex = (room.roundStartIndex + 1) % room.baseOrder.length;
-  }
+    if (room.currentRound === 1) {
+      room.roundStartIndex = Math.floor(Math.random() * room.baseOrder.length);
+    } else {
+      room.roundStartIndex = (room.roundStartIndex + 1) % room.baseOrder.length;
+    }
 
-  room.currentTurnIndex = room.roundStartIndex;
-  const currentPlayerId = room.baseOrder[room.currentTurnIndex];
-
-  await saveRoom(room);
-  return { room, currentPlayerId };
+    room.currentTurnIndex = room.roundStartIndex;
+    const currentPlayerId = room.baseOrder[room.currentTurnIndex];
+    return { room, currentPlayerId };
+  });
 }
 
 /**
@@ -490,46 +406,45 @@ export async function submitWord(
   currentPlayerId: string | null;
   newWord: { playerId: string; word: string };
 }> {
-  const room = await loadRoom(roomCode);
-  if (!room) throw new Error("ROOM_NOT_FOUND");
+  return updateRoom(roomCode, room => {
+    pruneDisconnected(room);
+    if (room.players.length === 0) throw new Error("ROOM_EMPTY");
 
-  ensureNotManual(room);
+    ensureNotManual(room);
 
-  if (room.phase !== "words") throw new Error("NOT_WORDS_PHASE");
+    if (room.phase !== "words") throw new Error("NOT_WORDS_PHASE");
 
-  const player = room.players.find((p) => p.id === playerId);
-  if (!player) throw new Error("PLAYER_NOT_FOUND");
+    const player = room.players.find((p) => p.id === playerId);
+    if (!player) throw new Error("PLAYER_NOT_FOUND");
 
-  // S1.2: validar que el socket que llama es la conexión vigente del jugador
-  // Comparación estricta: si socketId es null (desconectado) también debe fallar.
-  if (player.socketId !== callerSocketId) {
-    throw new Error("UNAUTHORIZED");
-  }
+    // S1.2: validar que el socket que llama es la conexión vigente del jugador
+    // Comparación estricta: si socketId es null (desconectado) también debe fallar.
+    if (player.socketId !== callerSocketId) {
+      throw new Error("UNAUTHORIZED");
+    }
 
-  const totalAlive = room.baseOrder.length;
-  if (totalAlive === 0) throw new Error("NO_ALIVE_PLAYERS");
+    const totalAlive = room.baseOrder.length;
+    if (totalAlive === 0) throw new Error("NO_ALIVE_PLAYERS");
 
-  const currentPlayerId = room.baseOrder[room.currentTurnIndex];
-  if (player.id !== currentPlayerId) throw new Error("NOT_YOUR_TURN");
+    const currentPlayerId = room.baseOrder[room.currentTurnIndex];
+    if (player.id !== currentPlayerId) throw new Error("NOT_YOUR_TURN");
 
-  const newWord = { playerId: player.id, word };
-  room.words.push(newWord);
+    const newWord = { playerId: player.id, word };
+    room.words.push(newWord);
 
-  const turnsDone =
-    ((room.currentTurnIndex - room.roundStartIndex + totalAlive) % totalAlive) +
-    1;
+    const turnsDone =
+      ((room.currentTurnIndex - room.roundStartIndex + totalAlive) % totalAlive) +
+      1;
 
-  if (turnsDone >= totalAlive) {
-    room.phase = "voting";
-    await saveRoom(room);
-    return { room, finishedRound: true, currentPlayerId: null, newWord };
-  }
+    if (turnsDone >= totalAlive) {
+      room.phase = "voting";
+      return { room, finishedRound: true, currentPlayerId: null, newWord };
+    }
 
-  room.currentTurnIndex = (room.currentTurnIndex + 1) % totalAlive;
-  const nextPlayerId = room.baseOrder[room.currentTurnIndex];
-
-  await saveRoom(room);
-  return { room, finishedRound: false, currentPlayerId: nextPlayerId, newWord };
+    room.currentTurnIndex = (room.currentTurnIndex + 1) % totalAlive;
+    const nextPlayerId = room.baseOrder[room.currentTurnIndex];
+    return { room, finishedRound: false, currentPlayerId: nextPlayerId, newWord };
+  });
 }
 
 /**
@@ -539,7 +454,8 @@ export async function submitVote(
   roomCode: string,
   voterId: string,
   callerSocketId: string,
-  targetId: string
+  targetId: string,
+  voteEpoch = 0
 ): Promise<{
   room: Room;
   finishedVoting: boolean;
@@ -549,168 +465,171 @@ export async function submitVote(
   isTie: boolean;
   tieCandidates: Player[] | null;
 }> {
-  const room = await loadRoom(roomCode);
-  if (!room) throw new Error("ROOM_NOT_FOUND");
+  return updateRoom(roomCode, room => {
+    pruneDisconnected(room);
+    if (room.players.length === 0) throw new Error("ROOM_EMPTY");
 
-  ensureNotManual(room);
+    ensureNotManual(room);
 
-  if (room.phase !== "voting") throw new Error("NOT_VOTING_PHASE");
+    if (room.phase !== "voting") throw new Error("NOT_VOTING_PHASE");
+    if (voteEpoch !== (room.voteEpoch ?? 0)) throw new Error("STALE_VOTE");
 
-  const voter = room.players.find((p) => p.id === voterId);
-  if (!voter) throw new Error("PLAYER_NOT_FOUND");
-  if (!voter.alive) throw new Error("PLAYER_DEAD");
-  if (!voter.connected) throw new Error("PLAYER_DISCONNECTED");
+    const voter = room.players.find((p) => p.id === voterId);
+    if (!voter) throw new Error("PLAYER_NOT_FOUND");
+    if (!voter.alive) throw new Error("PLAYER_DEAD");
+    if (!voter.connected) throw new Error("PLAYER_DISCONNECTED");
 
-  // S1.2: validar que el socket que llama es la conexión vigente del jugador
-  // Comparación estricta: si socketId es null (desconectado) también debe fallar.
-  if (voter.socketId !== callerSocketId) {
-    throw new Error("UNAUTHORIZED");
-  }
+    // S1.2: validar que el socket que llama es la conexión vigente del jugador
+    // Comparación estricta: si socketId es null (desconectado) también debe fallar.
+    if (voter.socketId !== callerSocketId) {
+      throw new Error("UNAUTHORIZED");
+    }
 
-  const eligibleVoters = room.players.filter((p) => p.alive && p.connected);
-  const totalEligible = eligibleVoters.length;
+    const eligibleVoters = room.players.filter((p) => p.alive && p.connected);
+    const totalEligible = eligibleVoters.length;
 
-  const targetPlayer = room.players.find((p) => p.alive && p.id === targetId);
-  if (!targetPlayer) throw new Error("INVALID_TARGET");
+    const targetPlayer = room.players.find((p) => p.alive && p.id === targetId);
+    if (!targetPlayer) throw new Error("INVALID_TARGET");
 
-  if (room.tieCandidates && Array.isArray(room.tieCandidates)) {
-    const tieIds = (room.tieCandidates as any[]).map((x) =>
-      typeof x === "string" ? x : x.id
-    );
-    if (!tieIds.includes(targetId)) throw new Error("INVALID_TARGET_TIE");
-  }
+    if (room.tieCandidates && Array.isArray(room.tieCandidates)) {
+      const tieIds = (room.tieCandidates as any[]).map((x) =>
+        typeof x === "string" ? x : x.id
+      );
+      if (!tieIds.includes(targetId)) throw new Error("INVALID_TARGET_TIE");
+    }
 
-  const alreadyVoted = room.votes.find((v: any) => v.voterId === voter.id);
-  if (alreadyVoted) throw new Error("ALREADY_VOTED");
+    const alreadyVoted = room.votes.find((v: any) => v.voterId === voter.id);
+    if (alreadyVoted) throw new Error("ALREADY_VOTED");
 
-  room.votes.push({ voterId: voter.id, targetId });
+    room.votes.push({ voterId: voter.id, targetId });
 
-  const eligibleIds = new Set(eligibleVoters.map((p) => p.id));
-  room.votes = room.votes.filter((v) => eligibleIds.has(v.voterId));
+    const eligibleIds = new Set(eligibleVoters.map((p) => p.id));
+    room.votes = room.votes.filter((v) => eligibleIds.has(v.voterId));
 
-  if (room.votes.length < totalEligible) {
-    await saveRoom(room);
-    return {
-      room,
-      finishedVoting: false,
-      eliminatedPlayer: null,
-      wasImpostor: null,
-      winner: null,
-      isTie: false,
-      tieCandidates: null,
-    };
-  }
+    if (room.votes.length < totalEligible) {
+      return {
+        room,
+        finishedVoting: false,
+        eliminatedPlayer: null,
+        wasImpostor: null,
+        winner: null,
+        isTie: false,
+        tieCandidates: null,
+      };
+    }
 
-  const count: Record<string, number> = {};
-  room.votes.forEach((v: any) => {
-    count[v.targetId] = (count[v.targetId] || 0) + 1;
-  });
+    const count: Record<string, number> = {};
+    room.votes.forEach((v: any) => {
+      count[v.targetId] = (count[v.targetId] || 0) + 1;
+    });
 
-  const entries = Object.entries(count);
-  const maxVotes = Math.max(...entries.map(([, n]) => n));
-  const topCandidateIds = entries
-    .filter(([, n]) => n === maxVotes)
-    .map(([id]) => id);
+    const entries = Object.entries(count);
+    const maxVotes = Math.max(...entries.map(([, n]) => n));
+    const topCandidateIds = entries
+      .filter(([, n]) => n === maxVotes)
+      .map(([id]) => id);
 
-  if (topCandidateIds.length > 1) {
-    room.tieCandidates = topCandidateIds as any;
+    if (topCandidateIds.length > 1) {
+      room.tieCandidates = topCandidateIds as any;
+      room.voteEpoch = (room.voteEpoch ?? 0) + 1;
+      room.votes = [];
+
+      const candidates = room.players.filter((p) =>
+        topCandidateIds.includes(p.id)
+      );
+
+      return {
+        room,
+        finishedVoting: false,
+        eliminatedPlayer: null,
+        wasImpostor: null,
+        winner: null,
+        isTie: true,
+        tieCandidates: candidates,
+      };
+    }
+
+    const eliminatedId = topCandidateIds[0];
+    const eliminatedPlayer = room.players.find((p) => p.id === eliminatedId)!;
+    eliminatedPlayer.alive = false;
+
+    const wasImpostor = eliminatedPlayer.id === room.impostorId;
+
+    room.tieCandidates = null;
     room.votes = [];
 
-    const candidates = room.players.filter((p) =>
-      topCandidateIds.includes(p.id)
-    );
-    await saveRoom(room);
+    if (wasImpostor) {
+      room.phase = "finished";
+      room.winner = "players";
+      return {
+        room,
+        finishedVoting: true,
+        eliminatedPlayer,
+        wasImpostor,
+        winner: "players",
+        isTie: false,
+        tieCandidates: null,
+      };
+    }
+
+    const aliveNow = room.players.filter((p) => p.alive);
+    if (aliveNow.length === 2) {
+      room.phase = "finished";
+      room.winner = "impostor";
+      return {
+        room,
+        finishedVoting: true,
+        eliminatedPlayer,
+        wasImpostor,
+        winner: "impostor",
+        isTie: false,
+        tieCandidates: null,
+      };
+    }
+
+    room.currentRound += 1;
+    room.phase = "revealRound";
 
     return {
       room,
-      finishedVoting: false,
-      eliminatedPlayer: null,
-      wasImpostor: null,
+      finishedVoting: true,
+      eliminatedPlayer,
+      wasImpostor,
       winner: null,
-      isTie: true,
-      tieCandidates: candidates,
-    };
-  }
-
-  const eliminatedId = topCandidateIds[0];
-  const eliminatedPlayer = room.players.find((p) => p.id === eliminatedId)!;
-  eliminatedPlayer.alive = false;
-
-  const wasImpostor = eliminatedPlayer.id === room.impostorId;
-
-  room.tieCandidates = null;
-  room.votes = [];
-
-  if (wasImpostor) {
-    room.phase = "finished";
-    room.winner = "players";
-    await saveRoom(room);
-    return {
-      room,
-      finishedVoting: true,
-      eliminatedPlayer,
-      wasImpostor,
-      winner: "players",
       isTie: false,
       tieCandidates: null,
     };
-  }
-
-  const aliveNow = room.players.filter((p) => p.alive);
-  if (aliveNow.length === 2) {
-    room.phase = "finished";
-    room.winner = "impostor";
-    await saveRoom(room);
-    return {
-      room,
-      finishedVoting: true,
-      eliminatedPlayer,
-      wasImpostor,
-      winner: "impostor",
-      isTie: false,
-      tieCandidates: null,
-    };
-  }
-
-  room.currentRound += 1;
-  room.phase = "revealRound";
-  await saveRoom(room);
-
-  return {
-    room,
-    finishedVoting: true,
-    eliminatedPlayer,
-    wasImpostor,
-    winner: null,
-    isTie: false,
-    tieCandidates: null,
-  };
+  });
 }
 
 export async function startNextRound(
-  roomCode: string
+  roomCode: string,
+  callerSocketId: string
 ): Promise<{ room: Room; currentPlayerId: string }> {
-  const room = await loadRoom(roomCode);
-  if (!room) throw new Error("ROOM_NOT_FOUND");
+  return updateRoom(roomCode, room => {
+    pruneDisconnected(room);
+    if (room.players.length === 0) throw new Error("ROOM_EMPTY");
 
-  ensureNotManual(room);
+    const caller = room.players.find(p => p.socketId === callerSocketId);
+    if (!caller?.isHost) throw new Error("ONLY_HOST_CAN_START");
+    ensureNotManual(room);
 
-  if (room.phase !== "revealRound") throw new Error("NOT_REVEAL_ROUND");
+    if (room.phase !== "revealRound") throw new Error("NOT_REVEAL_ROUND");
 
-  room.phase = "words";
-  room.words = [];
-  room.votes = [];
+    room.phase = "words";
+    room.words = [];
+    room.votes = [];
+    room.voteEpoch = (room.voteEpoch ?? 0) + 1;
 
-  const alive = room.players.filter((p) => p.alive);
-  room.baseOrder = alive.map((p) => p.id);
+    const alive = room.players.filter((p) => p.alive);
+    room.baseOrder = alive.map((p) => p.id);
 
-  room.roundStartIndex = (room.roundStartIndex + 1) % room.baseOrder.length;
-  room.currentTurnIndex = room.roundStartIndex;
+    room.roundStartIndex = (room.roundStartIndex + 1) % room.baseOrder.length;
+    room.currentTurnIndex = room.roundStartIndex;
 
-  const currentPlayerId = room.baseOrder[room.currentTurnIndex];
-
-  await saveRoom(room);
-  return { room, currentPlayerId };
+    const currentPlayerId = room.baseOrder[room.currentTurnIndex];
+    return { room, currentPlayerId };
+  });
 }
 
 function ensureNotManual(room: Room) {

@@ -6,7 +6,9 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test:security": "npx ts-node src/__tests__/security.test.ts"
+    "test:security": "ts-node src/__tests__/security.test.ts",
+    "test:atomicity": "ts-node src/__tests__/atomicity.test.ts",
+    "test:sprint2": "ts-node src/__tests__/sprint2.test.ts"
   },
   "dependencies": {
     "@upstash/redis": "^1.35.8",

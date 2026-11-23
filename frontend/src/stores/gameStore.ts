@@ -155,5 +155,112 @@ export const useGameStore = defineStore('game', {
     clearTieCandidates() {
       this.tieCandidates = null
     },
+    /**
+     * S3.2 — applySnapshot: restaura el estado completo desde el servidor
+     * sin triggers destructivos (no llama a resetVoting ni resetWords).
+     */
+    applySnapshot(snapshot: {
+      roomCode: string
+      mode: string
+      phase: GamePhase
+      players: any[]
+      currentRound: number
+      words: any[]
+      tieCandidates: any
+      voteEpoch: number
+      winner: string | null
+      lastEliminatedId: string | null
+      lastEliminatedName: string | null
+      lastEliminatedWasImpostor: boolean | null
+      currentPlayerId: string | null
+      myVote: string | null
+      hasVoted: boolean
+    }) {
+      this.roomCode = snapshot.roomCode
+      this.mode = snapshot.mode as 'classic' | 'manual'
+      this.phase = snapshot.phase
+      this.currentRound = snapshot.currentRound
+      this.voteEpoch = snapshot.voteEpoch
+
+      this.players = snapshot.players.map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        alive: p.alive,
+        isHost: p.isHost,
+        connected: p.connected,
+      }))
+
+      // Actualizar me si existe
+      if (this.me) {
+        const updatedMe = snapshot.players.find((p: any) => p.id === this.me?.id)
+        if (updatedMe) {
+          this.me = {
+            ...this.me,
+            name: updatedMe.name,
+            alive: updatedMe.alive,
+            connected: updatedMe.connected,
+            isHost: updatedMe.isHost,
+          }
+        }
+      }
+
+      // Restaurar palabras
+      this.words = snapshot.words ?? []
+
+      // Restaurar turno actual
+      if (snapshot.phase === 'words') {
+        this.currentPlayerId = snapshot.currentPlayerId
+      }
+
+      // Restaurar estado del voto propio sin resetear
+      if (snapshot.phase === 'voting') {
+        this.hasVoted = snapshot.hasVoted ?? false
+        this.myVote = snapshot.myVote ?? null
+      }
+
+      // Restaurar candidatos de empate
+      this.tieCandidates = snapshot.tieCandidates
+        ? snapshot.tieCandidates.map((p: any) => ({
+            id: typeof p === 'string' ? p : p.id,
+            name: typeof p === 'string' ? '' : p.name,
+            alive: typeof p === 'string' ? true : p.alive,
+            isHost: typeof p === 'string' ? false : p.isHost,
+            connected: typeof p === 'string' ? true : p.connected,
+          }))
+        : null
+
+      // Fix 4 completo: reconstruir lastRoundResult desde el snapshot
+      // en finished (con winner) y en revealRound (resultado de ronda intermedia).
+      if ((snapshot.phase === 'finished' && snapshot.winner) || snapshot.phase === 'revealRound') {
+        // Usar lastEliminatedName del snapshot si está disponible;
+        // si no, intentar recuperar de la lista de players (el expulsado aún está en la sala).
+        let eliminatedPlayer = null
+        if (snapshot.lastEliminatedId && snapshot.lastEliminatedName) {
+          eliminatedPlayer = {
+            id: snapshot.lastEliminatedId,
+            name: snapshot.lastEliminatedName,
+            alive: false,
+            isHost: false,
+            connected: false,
+          }
+        } else if (snapshot.lastEliminatedId) {
+          const elim = snapshot.players.find((p: any) => p.id === snapshot.lastEliminatedId)
+          if (elim) {
+            eliminatedPlayer = {
+              id: elim.id,
+              name: elim.name,
+              alive: elim.alive,
+              isHost: elim.isHost,
+              connected: elim.connected,
+            }
+          }
+        }
+        this.lastRoundResult = {
+          eliminatedPlayer,
+          wasImpostor: snapshot.lastEliminatedWasImpostor ?? null,
+          winner: snapshot.winner as 'players' | 'impostor' | null,
+        }
+      }
+    },
   },
 })

@@ -20,9 +20,11 @@ import {
   deleteRoom,
   markPlayerDisconnected,
   joinOrRejoinRoom,
+  leaveRoom,
+  removePlayerFromPreviousRoom,
 } from "./game/roomsManagerRedis";
 import { KNOWN_ERROR_CODES } from "./constants/errors";
-import { GameMode, toPublicPlayer } from "./game/types";
+import { GameMode, Player, Room, toPublicPlayer } from "./game/types";
 import {
   validateEvent,
   validateName,
@@ -104,7 +106,18 @@ function logError(tag: string, err: any) {
   console.error(`[${tag}]`, code);
 }
 
-function emitRoomStateToSocket(socket: any, room: any) {
+function emitRoomStateToSocket(socket: any, room: any, playerId?: string) {
+  // S3.2: incluir información del voto propio sin revelar votos ajenos
+  let myVote: string | null = null;
+  let hasVoted = false;
+  if (playerId && room.votes && Array.isArray(room.votes)) {
+    const myVoteEntry = room.votes.find((v: any) => v.voterId === playerId);
+    if (myVoteEntry) {
+      hasVoted = true;
+      myVote = myVoteEntry.targetId;
+    }
+  }
+
   socket.emit("roomState", {
     roomCode: room.code,
     mode: room.mode,
@@ -121,10 +134,16 @@ function emitRoomStateToSocket(socket: any, room: any) {
     tieCandidates: room.tieCandidates,
     voteEpoch: room.voteEpoch ?? 0,
     winner: room.winner,
+    lastEliminatedId: room.lastEliminatedId ?? null,
+    lastEliminatedName: room.lastEliminatedName ?? null,
+    lastEliminatedWasImpostor: room.lastEliminatedWasImpostor ?? null,
     currentPlayerId:
       room.phase === "words" && room.baseOrder?.length
         ? room.baseOrder[room.currentTurnIndex]
         : null,
+    // S3.2: estado del voto propio
+    myVote,
+    hasVoted,
   });
 }
 
@@ -170,7 +189,7 @@ io.on("connection", (socket) => {
         const roomCode = validateRoomCode(payload.roomCode);
         const playerToken = validatePlayerToken(payload.playerToken);
 
-        const { room, player, oldSocketId } = await rejoinRoom(
+        const { room, player, oldSocketId, currentPlayerId } = await rejoinRoom(
           roomCode.toUpperCase(),
           playerToken,
           socket.id
@@ -209,13 +228,17 @@ io.on("connection", (socket) => {
           },
         });
 
-        emitRoomStateToSocket(socket, room);
+        // S3.2: incluir playerId para que el snapshot incluya el voto propio
+        emitRoomStateToSocket(socket, room, player.id);
         emitRoleIfKnown(socket, room, player.id);
 
         // S1.1: playersUpdated con versión pública
         io.to(room.code).emit("playersUpdated", {
           players: room.players.map(toPublicPlayer),
         });
+        if (currentPlayerId) {
+          io.to(room.code).emit("turnChanged", { currentPlayerId });
+        }
       } catch (err: any) {
         logError("rejoinRoom", err);
         safeEmitError(socket, err, "UNKNOWN");
@@ -230,6 +253,30 @@ io.on("connection", (socket) => {
         // S2.2: validar entradas
         const name = validateName(payload.name);
         const mode = payload.mode ? validateMode(payload.mode) : "classic";
+
+        // S3.1: resolver membresía anterior antes de crear la nueva sala
+        const previousRoomCode = socket.data.roomCode;
+        const previousPlayerId = socket.data.playerId;
+        if (previousRoomCode) {
+          // Eliminar al jugador de la sala anterior en Redis y notificar
+          if (previousPlayerId) {
+            const prevResult = await removePlayerFromPreviousRoom(previousRoomCode, previousPlayerId);
+            // Emitir playersUpdated a la sala anterior
+            if (prevResult?.room) {
+              io.to(previousRoomCode).emit("playersUpdated", {
+                players: prevResult.room.players.map(toPublicPlayer),
+              });
+              // Si la salida resolvió la votación, emitir el resultado
+              if (prevResult.voteResolved) {
+                emitVoteResolution(io, previousRoomCode, prevResult.voteResolved, prevResult.room);
+              }
+            }
+          }
+          socket.leave(previousRoomCode);
+          socket.data.roomCode = undefined;
+          socket.data.playerId = undefined;
+        }
+
         const { room, player } = await createRoom(socket.id, name, mode);
 
         // S1.2: asociar identidad al socket
@@ -280,7 +327,35 @@ io.on("connection", (socket) => {
           ? validatePlayerToken(payload.playerToken)
           : undefined;
 
-        const { room, player, isRejoin, oldSocketId } = await joinOrRejoinRoom(
+        // S3.1: resolver membresía anterior antes de unirse a la nueva sala
+        // Si la sala anterior es la misma que la nueva, no eliminar al jugador
+        // de Redis — joinOrRejoinRoom lo recuperará por token
+        const previousRoomCode = socket.data.roomCode;
+        const previousPlayerId = socket.data.playerId;
+        const targetRoomCode = roomCode.toUpperCase();
+        if (previousRoomCode && previousRoomCode !== targetRoomCode) {
+          // Eliminar al jugador de la sala anterior en Redis y notificar
+          if (previousPlayerId) {
+            const prevResult = await removePlayerFromPreviousRoom(previousRoomCode, previousPlayerId);
+            // Emitir playersUpdated a la sala anterior
+            if (prevResult?.room) {
+              io.to(previousRoomCode).emit("playersUpdated", {
+                players: prevResult.room.players.map(toPublicPlayer),
+              });
+              // Si la desconexión resolvió la votación, emitir el resultado
+              if (prevResult.voteResolved) {
+                emitVoteResolution(io, previousRoomCode, prevResult.voteResolved, prevResult.room);
+              }
+            }
+          }
+          socket.leave(previousRoomCode);
+        }
+        if (previousRoomCode) {
+          socket.data.roomCode = undefined;
+          socket.data.playerId = undefined;
+        }
+
+        const { room, player, isRejoin, oldSocketId, currentPlayerId } = await joinOrRejoinRoom(
           roomCode.toUpperCase(),
           socket.id,
           name,
@@ -321,14 +396,17 @@ io.on("connection", (socket) => {
           isRejoin,
         });
 
-        // ✅ snapshot + rol al reconectar
-        emitRoomStateToSocket(socket, room);
+        // ✅ snapshot + rol al reconectar (S3.2: incluir playerId)
+        emitRoomStateToSocket(socket, room, player.id);
         emitRoleIfKnown(socket, room, player.id);
 
         // S1.1: playersUpdated con versión pública
         io.to(room.code).emit("playersUpdated", {
           players: room.players.map(toPublicPlayer),
         });
+        if (currentPlayerId) {
+          io.to(room.code).emit("turnChanged", { currentPlayerId });
+        }
       } catch (err: any) {
         logError("joinRoom", err);
         safeEmitError(socket, err, "UNKNOWN");
@@ -479,6 +557,8 @@ io.on("connection", (socket) => {
         );
 
         if (!finishedVoting) {
+          // S3.2: confirmar al cliente que su voto fue aceptado en el servidor
+          socket.emit("voteConfirmed", { voterId });
           if (isTie && tieCandidates) {
             // S1.1: tieVote con versión pública
             io.to(updatedRoom.code).emit("tieVote", {
@@ -491,6 +571,9 @@ io.on("connection", (socket) => {
           }
           return;
         }
+
+        // S3.2: confirmar el voto antes de notificar el resultado
+        socket.emit("voteConfirmed", { voterId });
 
         io.to(updatedRoom.code).emit("playersUpdated", {
           players: updatedRoom.players.map(toPublicPlayer),
@@ -588,23 +671,126 @@ io.on("connection", (socket) => {
     }
   });
 
+  // S3.1 — leaveRoom: el jugador abandona la sala explícitamente
+  socket.on("leaveRoom", async () => {
+    try {
+      const roomCode = socket.data.roomCode;
+      if (!roomCode) return;
+
+      // Limpiar la identidad del socket antes de llamar a leaveRoom
+      // para que si la sala ya no existe, el socket no conserve estado
+      socket.data.roomCode = undefined;
+      socket.data.playerId = undefined;
+      socket.leave(roomCode);
+
+      const result = await leaveRoom(roomCode, socket.id);
+
+      // leaveRoom puede devolver undefined cuando la sala queda vacía
+      // y updateRoom la borra (ROOM_EMPTY + missingOk)
+      if (!result) {
+        // Sala se borró: notificar roomEnded a los sockets restantes
+        io.to(roomCode).emit("roomEnded");
+        return;
+      }
+
+      const { room, playerRemoved } = result;
+
+      if (!playerRemoved) {
+        // Ya no estaba en la sala (salida repetida, desconexión previa)
+        return;
+      }
+
+      // Sala aún tiene jugadores: notificar la actualización
+      if (room) {
+        io.to(roomCode).emit("playersUpdated", {
+          players: room.players.map(toPublicPlayer),
+        });
+      }
+    } catch (err: any) {
+      logError("leaveRoom", err);
+    }
+  });
+
   socket.on("disconnect", async () => {
     try {
       const roomCode = socket.data.roomCode;
       if (!roomCode) return;
-      await markPlayerDisconnected(roomCode, socket.id);
+      const result = await markPlayerDisconnected(roomCode, socket.id);
+
+      // S3.3: si la desconexión resolvió la votación, emitir el resultado
+      if (result?.voteResolved) {
+        emitVoteResolution(io, roomCode, result.voteResolved, result.room);
+        return;
+      }
 
       const room = await getRoom(roomCode);
       if (room) {
         io.to(room.code).emit("playersUpdated", {
           players: room.players.map(toPublicPlayer),
         });
+
+        // S3.3: si la desconexión avanzó el turno en fase words/revealRound,
+        // emitir turnChanged para que el frontend actualice el turno actual
+        if (result?.currentPlayerId !== undefined) {
+          if (result.currentPlayerId) {
+            io.to(room.code).emit("turnChanged", {
+              currentPlayerId: result.currentPlayerId,
+            });
+          }
+        }
       }
     } catch (err: any) {
       logError("disconnect", err);
     }
   });
 });
+
+/**
+ * S3.1/S3.3 — emitVoteResolution: emite los eventos correspondientes cuando
+ * una votación se resuelve (por disconnect, removePlayerFromPreviousRoom, etc.).
+ * Se usa como helper para evitar duplicar la lógica en disconnect y joinRoom.
+ */
+function emitVoteResolution(
+  io: any,
+  roomCode: string,
+  voteResolved: {
+    eliminatedPlayer: Player | null;
+    wasImpostor: boolean | null;
+    winner: "players" | "impostor" | null;
+    isTie: boolean;
+    tieCandidates: Player[] | null;
+  },
+  room: Room
+): void {
+  if (voteResolved.isTie && voteResolved.tieCandidates) {
+    io.to(roomCode).emit("tieVote", {
+      tieCandidates: voteResolved.tieCandidates.map(toPublicPlayer),
+      voteEpoch: room.voteEpoch ?? 0,
+    });
+  } else if (voteResolved.eliminatedPlayer) {
+    const { eliminatedPlayer, wasImpostor, winner } = voteResolved;
+    io.to(roomCode).emit("playersUpdated", {
+      players: room.players.map(toPublicPlayer),
+    });
+    io.to(roomCode).emit("roundResult", {
+      eliminatedPlayer: toPublicPlayer(eliminatedPlayer),
+      wasImpostor,
+      winner,
+      currentRound: room.currentRound,
+    });
+    if (winner) {
+      io.to(roomCode).emit("gameFinished", {
+        winner,
+        roomCode: room.code,
+      });
+    } else {
+      io.to(roomCode).emit("phaseChanged", {
+        phase: room.phase,
+        currentRound: room.currentRound,
+      });
+    }
+  }
+}
 
 server.listen(Number(PORT), "0.0.0.0", () => {
   const address = server.address();

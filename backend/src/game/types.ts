@@ -72,4 +72,10 @@ export interface Room {
   votes: VoteEntry[];
   winner: "players" | "impostor" | null;
   tieCandidates: string[] | null;
+  /** ID del jugador expulsado en la última ronda (para snapshot en fase finished). */
+  lastEliminatedId: string | null;
+  /** Nombre del jugador expulsado (persistido para snapshot si el jugador ya no está en la sala). */
+  lastEliminatedName: string | null;
+  /** Si el jugador expulsado era el impostor (para snapshot en revealRound/finished). */
+  lastEliminatedWasImpostor: boolean | null;
 }

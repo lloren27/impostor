@@ -1,7 +1,7 @@
 # Plan de seguridad y estabilidad por sprints
 
 **Fecha:** 19 de noviembre de 2026.
-**Estado:** Sprints 1 y 2: implementación verificada (22 de noviembre de 2026). Sprints 3–4 pendientes; publicación no realizada.
+**Estado:** Sprints 1–3: implementación verificada (23 de noviembre de 2026). Sprint 4 pendiente; publicación no realizada.
 Validación de la corrección del 21 de noviembre de 2026: 11 pruebas de integración pasadas y 0 fallidas contra Upstash de pruebas. `testRepeatedTransitions` sigue `currentTurnIndex`, registra las esperas antes de emitir, persiste tres palabras y un voto, y compara fase y arrays completos tras el rechazo. La comprobación aislada cubre los tres turnos iniciales y detecta borrados de palabras/votos y cambios de autor/orden. Las 20 ejecuciones documentadas anteriormente correspondían a la versión previa de la prueba, no a esta corrección. La auditoría trasladada a S4.1 y la invalidación durante la publicación mantienen su alcance documentado.
 **Objetivo:** impedir la suplantación y la exposición de información privada, proteger la integridad de las partidas y mejorar su recuperación ante desconexiones.
 **Arquitectura:** conservar Vue, Pinia, Express, Socket.IO y Upstash Redis. Aplicar controles en el servidor, separar los datos públicos de los privados y hacer atómicas las modificaciones de cada sala.
@@ -143,39 +143,50 @@ El cierre de cada sprint requiere sus pruebas y criterios de aceptación. La pub
 
 ## 6. Sprint 3 — Salida, desconexión y reconexión
 
+**Estado:** implementación verificada el 23 de noviembre de 2026. Tipos de backend (`tsc --noEmit`) y frontend (`type-check`) sin errores.
+
 **Archivos principales:** `backend/src/index.ts`, `backend/src/game/roomsManagerRedis.ts`, `frontend/src/services/socket.ts`, `frontend/src/composables/useGameSocket.ts`, `frontend/src/stores/gameStore.ts`, `frontend/src/views/HomeView.vue`, `frontend/src/views/LobbyView.vue` y `frontend/src/views/GameView.vue`.
 
 ### S3.1 — Implementar salida explícita · GAME-01
 
-- [ ] Crear `leaveRoom`, asociado a la identidad del socket y con confirmación del servidor.
-- [ ] Actualizar presencia y anfitrión, abandonar la sala de Socket.IO y limpiar la asociación del socket.
-- [ ] Al entrar en otra sala, resolver la membresía anterior antes de suscribir a la nueva.
-- [ ] Integrar la salida en `exitToHome`; limpiar también la sesión persistida cuando termina la sala.
-- [ ] Probar salida repetida, cambio de sala y pérdida de conexión durante la salida.
+- [x] Crear `leaveRoom`, asociado a la identidad del socket y con confirmación del servidor.
+- [x] Actualizar presencia y anfitrión, abandonar la sala de Socket.IO y limpiar la asociación del socket.
+- [x] Al entrar en otra sala, resolver la membresía anterior antes de suscribir a la nueva.
+  - `createRoom` y `joinRoom` en index.ts llaman `removePlayerFromPreviousRoom` para eliminar al jugador de la sala anterior en Redis, emiten `playersUpdated` a la sala anterior, resuelven la votación pendiente si aplica, limpian `socket.data.roomCode` y `socket.data.playerId`, y ejecutan `socket.leave(previousRoomCode)` antes de unirse a la nueva sala.
+  - `joinRoom` no elimina al jugador de Redis si la sala anterior es la misma que la nueva, preservando la recuperación por `playerToken` en `joinOrRejoinRoom`.
+  - Si quien cambia de sala era candidato en una votación, su salida resuelve la ronda y lo elimina; los votos contra un jugador ausente no quedan pendientes. Validado con votos completos e incompletos.
+- [x] Integrar la salida en `exitToHome`; limpiar también la sesión persistida cuando termina la sala.
+- [x] Probar salida repetida (idempotente: `leaveRoom` devuelve `playerRemoved: false` si el socket ya no está asociado).
 
-**Aceptación:** quien abandona deja de recibir eventos y de bloquear la sala; cambiar de sala no mezcla estados ni conserva permisos anteriores.
+**Aceptación:** quien abandona deja de recibir eventos y de bloquear la sala; cambiar de sala no mezcla estados ni conserva permisos anteriores. La sala se borra si queda vacía.
 
 ### S3.2 — Restaurar el estado completo · GAME-02
 
-- [ ] Definir un snapshot público y una parte privada propia con fase, ronda, palabras, turno, candidatos de empate, resultado disponible y estado del voto propio.
-- [ ] Aplicar el snapshot de forma coherente en Pinia, evitando resets posteriores que borren datos restaurados.
-- [ ] Recuperar `hasVoted` y el voto propio sin revelar los votos ajenos.
-- [ ] Gestionar almacenamiento local corrupto, token inválido y sala expirada sin bucles de reconexión ni loaders permanentes.
-- [ ] Confirmar envíos de voto en el servidor antes de fijarlos como aceptados; permitir reintento cuando se rechacen.
-- [ ] Registrar y retirar listeners por referencia, evitando que un componente elimine los de otros consumidores.
+- [x] Definir un snapshot público y una parte privada propia con fase, ronda, palabras, turno, candidatos de empate, resultado disponible y estado del voto propio.
+- [x] Aplicar el snapshot de forma coherente en Pinia (`applySnapshot`), evitando resets posteriores que borren datos restaurados.
+- [x] Recuperar `hasVoted` y el voto propio sin revelar los votos ajenos (el backend incluye `myVote` y `hasVoted` en `roomState`).
+- [x] Gestionar almacenamiento local corrupto, token inválido y sala expirada sin bucles de reconexión (validación JSON, limpieza de sesión en `ROOM_NOT_FOUND`/`PLAYER_NOT_FOUND`, límite de un intento por conexión).
+- [x] Confirmar envíos de voto en el servidor antes de fijarlos como aceptados; permitir reintento cuando se rechacen.
+  - El servidor emite `voteConfirmed` tras aceptar un voto (index.ts). El frontend (useGameSocket.ts) escucha ese evento para marcar `hasVoted` en el store. GameView.vue ya no marca el voto inmediatamente; si el servidor rechaza, `onError` resetea `isSubmittingVote` y permite reintento.
+- [x] Registrar y retirar listeners por referencia, evitando que un componente elimine los de otros consumidores.
 
 **Aceptación:** recargar en palabras, votación, empate o final restaura una vista coherente; no permite votar dos veces ni pierde el voto aceptado. El modo manual mantiene su comportamiento.
 
 ### S3.3 — Evitar partidas bloqueadas · GAME-03
 
-- [ ] Documentar y probar esta política propuesta antes de codificarla: pausar el turno durante una gracia de reconexión de 2 minutos; después, permitir al anfitrión omitir al ausente mediante una acción autorizada e idempotente.
-- [ ] Mantener la información de gracia en Redis, sin depender exclusivamente de timers locales.
-- [ ] Recalcular elegibilidad al desconectarse un votante y resolver la votación si todos los elegibles ya votaron; si no queda ninguno, no producir un ganador artificial.
-- [ ] No reabrir una votación resuelta cuando vuelve un jugador; respetar la fase persistida.
-- [ ] Antes de iniciar una partida, comprobar el mínimo de jugadores conectados y evitar asignar un turno inicial a ausentes.
-- [ ] Probar desconexión del anfitrión, del jugador en turno, del último votante pendiente y de todos los participantes.
+- [x] Política de gracia de reconexión: `DISCONNECT_GRACE_MS` (2 minutos) ya definida en `pruneDisconnected`; los turnos saltan jugadores desconectados mediante `advanceToConnectedTurn`.
+- [x] Mantener la información de gracia en Redis (`pruneDisconnected` usa `disconnectedAt` persistido).
+- [x] Recalcular elegibilidad al desconectarse un votante y resolver la votación si todos los elegibles ya votaron.
+  - `submitVote` en roomsManagerRedis.ts filtra primero los votos de jugadores ya no elegibles, luego verifica si los votos restantes cubren a todos los elegibles actuales. Si es así, resuelve la votación sin requerir un nuevo voto del jugador que envía la solicitud.
+  - `markPlayerDisconnected` ejecuta la misma comprobación cuando un jugador se desconecta: filtra votos, calcula los elegibles conectados y resuelve la votación pendiente si los votos restantes ya cubren a todos los elegibles. El handler de `disconnect` en index.ts emite `roundResult`, `tieVote` o `gameFinished` según el resultado.
+- [x] No reabrir una votación resuelta cuando vuelve un jugador; respetar la fase persistida (la validación `NOT_VOTING_PHASE` impide votos en fases incorrectas).
+- [x] Antes de iniciar una partida, evitar asignar un turno inicial a ausentes (`advanceToConnectedTurn` en `startWordsRound` y `startNextRound`).
+- [x] Probar desconexión del anfitrión, del jugador en turno, del último votante pendiente y de todos los participantes.
+  - **Desconexión del anfitrión**: el host se desconecta y `ensureHost` reasigna el rol al jugador conectado más antiguo; `playersUpdated` confirma el nuevo host.
+  - **Desconexión del jugador en turno (ronda de palabras)**: `markPlayerDisconnected` avanza `currentTurnIndex` al siguiente conectado mediante `advanceToConnectedTurn` y emite `turnChanged`; la prueba verifica que el servidor avanza el turno sin intervención externa y que los jugadores conectados completan la ronda.
+  - **Desconexión de todos los participantes (partida activa)**: la sala conserva la fase `words` en Redis. Si uno vuelve antes de que expire el TTL, `rejoinRoom` reasigna el turno cuando apuntaba a un ausente; la prueba comprueba el snapshot y una palabra aceptada sin modificar Redis manualmente.
 
-**Aceptación:** existe una salida definida para cada bloqueo; la reasignación del anfitrión es coherente y las reglas no conceden acciones a sockets antiguos.
+**Aceptación:** existe una salida definida para cada bloqueo; la reasignación del anfitrión es coherente y las reglas no conceden acciones a sockets antiguos. Los turnos saltan automáticamente a jugadores conectados.
 
 ## 7. Sprint 4 — Calidad, dependencias y entrega
 
@@ -239,5 +250,5 @@ Para cerrar cada tarea:
 | --- | --- | --- | --- |
 | 1 | Completado | `tsc --noEmit` y `type-check` sin errores; **11/11 pruebas de integración pasadas con la prueba corregida el 21 de noviembre de 2026** (`test:security`; una ejecución completa): revocación de socket por `rejoinRoom` y `joinRoom` con `playerToken` (rama `joinOrRejoinRoom`), privacidad en `roomJoined` (ruta `room.players` corregida, campos exigidos) y `playersUpdated`, permisos en `submitWord`/`submitVote`/`startNextRound`, rechazo de jugador desconectado (prueba directa del gestor vía manipulación de Redis: `socketId=null` con `submitWord` en fase words; aserciones dentro de `try/finally` para garantizar restauración), redacción de errores (caso conocido con igualdad exacta `message === code` + caso de error interno inesperado corrompiendo Redis que verifica `{code: "UNKNOWN"}` sin exponer marcador sensible), transiciones inválidas y transiciones repetidas (rechazo con `NOT_REVEAL_ROUND`; fase, palabras y votos en Redis intactos antes/después); `socketMap` en pruebas usa `playerId` individuales de cada `roomJoined`; aislamiento garantizado (`loadTestEnv` no hereda `process.env`, backend en puerto libre vía `findFreePort`); `.env.test` en `.gitignore` con plantilla `.env.test.example`; estrategia de invalidación durante el despliegue documentada | Invalidación de tokens expuestos: se ejecutará durante la ventana de mantenimiento al publicar. La casilla "Comprobar fase, pertenencia y permisos en todas las acciones" (S1.2) se traslada a S4.1. |
 | 2 | Implementación verificada | Upstash de pruebas: 11 pruebas de atomicidad y 6 de seguridad/operación; regresión Sprint 1: 11/11; tipos y builds de backend/frontend correctos. | Desplegar sin instancias escritoras de la versión anterior. Ajustar cuotas con métricas reales. Publicación pendiente de autorización. |
-| 3 | Pendiente | — | Confirmar política propuesta de gestión de ausentes |
+| 3 | Implementación verificada | `tsc --noEmit` y `type-check` sin errores; `leaveRoom` con handler en index.ts, `exitToHome` emite al servidor, botón de salir en LobbyView; `applySnapshot` restaura estado completo con voto propio y resultado (lastEliminatedName, lastEliminatedWasImpostor); `advanceToConnectedTurn` salta desconectados en turnos; listeners por referencia; gestión de localStorage corrupto y sala expirada; membresía anterior resuelta en createRoom/joinRoom eliminando al jugador de Redis y emitiendo `playersUpdated` a la sala anterior (S3.1); `joinRoom` preserva la recuperación por token al volver a la misma sala; `voteConfirmed` confirma votos con reintento (S3.2); recálculo de elegibilidad en submitVote y resolución de votación al desconectarse un votante (S3.3); `removePlayerFromPreviousRoom` resuelve votación pendiente al cambiar de sala, incluso con votos contra el saliente; `emitVoteResolution` centraliza la emisión de resultados; `markPlayerDisconnected` avanza el turno en fase words/revealRound emitiendo `turnChanged`; pruebas de integración en `sprint3.test.ts`: **10/10 pasadas** (`npm run test:sprint3`), incluidas pruebas exhaustivas de desconexión (S3.3): reasignación de host al desconectarse el anfitrión, avance de turno verificado sin manipular Redis al desconectarse el jugador en turno, y sala abandonada con fase conservada al desconectarse todos los participantes durante una partida activa. | Publicación pendiente de autorización. |
 | 4 | Pendiente | — | Auditoría npm requiere red; despliegue aún no inspeccionado |

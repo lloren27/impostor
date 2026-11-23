@@ -28,6 +28,10 @@ export function useGameSocket() {
   }
 
   function exitToHome() {
+    // S3.1: notificar al servidor que el jugador abandona la sala
+    if (gameStore.roomCode && socket.connected) {
+      socket.emit('leaveRoom')
+    }
     localStorage.removeItem('impostor-session')
     gameStore.setReconnecting(false)
     gameStore.$reset()
@@ -38,7 +42,7 @@ export function useGameSocket() {
   const roomJoinedCallbacks: Array<(payload: any) => void> = []
   const errorCallbacks: Array<() => void> = []
 
-  function onRoomJoined(cb: (payload: any) => void) {
+  function onRoomJoinedCallback(cb: (payload: any) => void) {
     roomJoinedCallbacks.push(cb)
   }
 
@@ -46,199 +50,232 @@ export function useGameSocket() {
     errorCallbacks.push(cb)
   }
 
-  function handleConnect() {
+  // S3.2: limitar intentos de reconexión automática para evitar bucles
+  let rejoinAttempted = false
+
+  // S3.2: listeners por referencia para retirar solo los propios
+  function onConnect() {
     const saved = localStorage.getItem('impostor-session')
     if (!saved) return
 
-    const { roomCode, playerToken } = JSON.parse(saved)
+    let session: { roomCode: string; playerToken: string } | null
+    try {
+      session = JSON.parse(saved)
+    } catch {
+      localStorage.removeItem('impostor-session')
+      return
+    }
 
-    if (!roomCode || !playerToken) return
+    // Fix 5: JSON.parse puede devolver null para una sesión con JSON válido pero nulo
+    if (!session) {
+      localStorage.removeItem('impostor-session')
+      return
+    }
+
+    const { roomCode, playerToken } = session
+    if (!roomCode || !playerToken) {
+      localStorage.removeItem('impostor-session')
+      return
+    }
+
+    if (rejoinAttempted) return
+    rejoinAttempted = true
+
     gameStore.setReconnecting(true)
-
     socket.emit('rejoinRoom', { roomCode, playerToken })
   }
 
-  onMounted(() => {
-    socket.on('connect', handleConnect)
+  function onRoomJoined(payload: any) {
+    gameStore.setReconnecting(false)
+    gameStore.setRoomJoined(payload)
+    gameStore.setPlayerId(payload.playerId)
+    if (payload.playerToken) gameStore.setPlayerToken?.(payload.playerToken)
+    roomJoinedCallbacks.forEach((cb) => cb(payload))
+  }
 
-    socket.on('roomJoined', (payload) => {
-      gameStore.setReconnecting(false)
-      gameStore.setRoomJoined(payload)
-      gameStore.setPlayerId(payload.playerId)
-      if (payload.playerToken) gameStore.setPlayerToken?.(payload.playerToken)
-
-      roomJoinedCallbacks.forEach((cb) => cb(payload))
+  function onRoomState(state: any) {
+    gameStore.applySnapshot({
+      roomCode: state.roomCode,
+      mode: state.mode,
+      phase: state.phase,
+      players: state.players ?? [],
+      currentRound: state.currentRound ?? 0,
+      words: state.words ?? [],
+      tieCandidates: state.tieCandidates,
+      voteEpoch: state.voteEpoch ?? 0,
+      winner: state.winner,
+      lastEliminatedId: state.lastEliminatedId ?? null,
+      lastEliminatedName: state.lastEliminatedName ?? null,
+      lastEliminatedWasImpostor: state.lastEliminatedWasImpostor ?? null,
+      currentPlayerId: state.currentPlayerId,
+      myVote: state.myVote ?? null,
+      hasVoted: state.hasVoted ?? false,
     })
 
-    socket.on('roomState', (state) => {
-      if (state.roomCode) gameStore.roomCode = state.roomCode
-      if (state.mode) gameStore.mode = state.mode
-      if (Array.isArray(state.players)) gameStore.updatePlayers(state.players)
+    if (state.phase === 'words' && !gameStore.roundStarterId && state.currentPlayerId) {
+      gameStore.setRoundStarter(state.currentPlayerId)
+    }
 
-      gameStore.voteEpoch = state.voteEpoch ?? 0
-      if (state.phase) {
-        gameStore.setPhase(state.phase, state.currentRound)
-      }
+    if (state.phase && state.phase !== 'lobby') {
+      router.push({ name: 'game', params: { code: state.roomCode } })
+    }
+  }
 
-      if (state.phase === 'words') {
-        gameStore.setCurrentTurn(state.currentPlayerId ?? null)
+  function onPlayersUpdated({ players }: { players: any[] }) {
+    gameStore.updatePlayers(players)
+  }
 
-        if (!gameStore.roundStarterId && state.currentPlayerId) {
-          gameStore.setRoundStarter(state.currentPlayerId)
-        }
-      }
+  function onErrorMessage({ code, message }: { code: string; message: string }) {
+    gameStore.setReconnecting(false)
+    const errorCode = code ?? message ?? 'UNKNOWN'
+    const translated = translateBackendError(errorCode)
+    uiStore.showInfo(translated, i18n.global.t('common.errorTitle'))
+    errorCallbacks.forEach((cb) => cb())
 
-      if (state.phase && state.phase !== 'lobby') {
-        router.push({ name: 'game', params: { code: state.roomCode } })
-      }
-    })
-
-    socket.on('playersUpdated', ({ players }) => {
-      gameStore.updatePlayers(players)
-    })
-
-    socket.on('errorMessage', ({ code, message }) => {
-      gameStore.setReconnecting(false)
-
-      const errorCode = code ?? message ?? 'UNKNOWN'
-
-      const translated = translateBackendError(errorCode)
-
-      uiStore.showInfo(translated, i18n.global.t('common.errorTitle'))
-
-      errorCallbacks.forEach((cb) => cb())
-
-      if (errorCode === 'ROOM_NOT_FOUND') {
-        router.push({ name: 'NotFound' })
-      }
-
-      // (opcional) para debug:
-      // if (!code && message) console.warn('[backend error message]', message)
-    })
-
-    socket.on(
-      'gameStarted',
-      ({
-        phase,
-        players,
-        roomCode,
-        currentRound,
-        voteEpoch,
-        mode,
-      }: {
-        phase: GamePhase
-        players: any[]
-        roomCode: string
-        currentRound?: number
-        voteEpoch?: number
-        mode: GameMode
-      }) => {
-        gameStore.roomCode = roomCode
-        gameStore.updatePlayers(players)
-        gameStore.setPhase(phase, currentRound)
-        gameStore.voteEpoch = voteEpoch ?? 0
-        if (mode) gameStore.mode = mode
-
-        gameStore.resetWords()
-        gameStore.resetVoting()
-        gameStore.lastRoundResult = null
-        gameStore.setRoundStarter(null)
-        gameStore.setCurrentTurn(null)
-
-        router.push({ name: 'game', params: { code: roomCode } })
-        gameStartedCallbacks.forEach((cb) => cb())
-      },
-    )
-
-    socket.on('phaseChanged', ({ phase, currentRound, voteEpoch }) => {
-      gameStore.setPhase(phase, currentRound)
-      if (voteEpoch !== undefined) gameStore.voteEpoch = voteEpoch
-
-      if (phase === 'words') {
-        gameStore.resetWords()
-      }
-
-      if (phase === 'voting') {
-        gameStore.resetVoting()
-      }
-    })
-
-    socket.on('yourRole', ({ isImpostor, character }) => {
-      gameStore.setMyRole(isImpostor, character)
-      // gameStore.setPhase('reveal')
-    })
-
-    socket.on('turnChanged', ({ currentPlayerId }) => {
-      if (gameStore.phase === 'words' && !gameStore.roundStarterId) {
-        gameStore.setRoundStarter(currentPlayerId)
-      }
-      gameStore.setCurrentTurn(currentPlayerId)
-    })
-
-    socket.on('wordAdded', ({ playerId, word, words }) => {
-      gameStore.addWord({ playerId, word }, words)
-    })
-
-    socket.on('roundResult', (payload) => {
-      gameStore.setLastRoundResult(payload)
-    })
-
-    socket.on('tieVote', ({ tieCandidates, voteEpoch }) => {
-      gameStore.voteEpoch = voteEpoch ?? 0
-      // S1.1: tieCandidates vienen como PublicPlayer[] del backend
-      const mapped = tieCandidates.map((p: any) => ({
-        id: p.id,
-        name: p.name,
-        alive: p.alive,
-        isHost: p.isHost,
-        connected: p.connected,
-      }))
-      gameStore.setTieCandidates(mapped)
-      gameStore.resetVoting()
-
-      uiStore.showInfo(i18n.global.t('game.tieVoteMessage'), i18n.global.t('game.tieVoteTitle'))
-
-      tieVoteCallbacks.forEach((cb) => cb()) // 👈 IMPORTANTE
-    })
-
-    socket.on('gameFinished', ({ winner }) => {
-      gameStore.setPhase('finished')
-      gameStore.setLastRoundResult({ winner })
-    })
-
-    socket.on('roomEnded', () => {
+    if (errorCode === 'ROOM_NOT_FOUND' || errorCode === 'PLAYER_NOT_FOUND') {
+      localStorage.removeItem('impostor-session')
       gameStore.$reset()
-      router.push({ name: 'home' })
-    })
+      router.push({ name: 'NotFound' })
+    }
+  }
 
-    socket.on('disconnect', () => {
-      gameStore.setReconnecting(true)
-      errorCallbacks.forEach((cb) => cb())
-    })
+  function onGameStartedEvent({
+    phase,
+    players,
+    roomCode,
+    currentRound,
+    voteEpoch,
+    mode,
+  }: {
+    phase: GamePhase
+    players: any[]
+    roomCode: string
+    currentRound?: number
+    voteEpoch?: number
+    mode: GameMode
+  }) {
+    gameStore.roomCode = roomCode
+    gameStore.updatePlayers(players)
+    gameStore.setPhase(phase, currentRound)
+    gameStore.voteEpoch = voteEpoch ?? 0
+    if (mode) gameStore.mode = mode
+    gameStore.resetWords()
+    gameStore.resetVoting()
+    gameStore.lastRoundResult = null
+    gameStore.setRoundStarter(null)
+    gameStore.setCurrentTurn(null)
+    router.push({ name: 'game', params: { code: roomCode } })
+    gameStartedCallbacks.forEach((cb) => cb())
+  }
 
-    socket.on('connect_error', () => {
-      gameStore.setReconnecting(true)
-      errorCallbacks.forEach((cb) => cb())
-    })
+  function onPhaseChanged({ phase, currentRound, voteEpoch }: { phase: GamePhase; currentRound?: number; voteEpoch?: number }) {
+    gameStore.setPhase(phase, currentRound)
+    if (voteEpoch !== undefined) gameStore.voteEpoch = voteEpoch
+    if (phase === 'words') gameStore.resetWords()
+    if (phase === 'voting') gameStore.resetVoting()
+  }
+
+  function onYourRole({ isImpostor, character }: { isImpostor: boolean; character: string | null }) {
+    gameStore.setMyRole(isImpostor, character)
+  }
+
+  function onTurnChanged({ currentPlayerId }: { currentPlayerId: string | null }) {
+    if (gameStore.phase === 'words' && !gameStore.roundStarterId) {
+      gameStore.setRoundStarter(currentPlayerId)
+    }
+    gameStore.setCurrentTurn(currentPlayerId)
+  }
+
+  function onWordAdded({ playerId, word, words }: { playerId: string; word: string; words: any[] }) {
+    gameStore.addWord({ playerId, word }, words)
+  }
+
+  function onRoundResult(payload: any) {
+    gameStore.setLastRoundResult(payload)
+  }
+
+  // S3.2: confirmar el voto en el store solo cuando el servidor lo acepta
+  function onVoteConfirmed() {
+    gameStore.markAsVoted()
+  }
+
+  function onTieVoteEvent({ tieCandidates, voteEpoch }: { tieCandidates: any[]; voteEpoch: number }) {
+    gameStore.voteEpoch = voteEpoch ?? 0
+    const mapped = tieCandidates.map((p: any) => ({
+      id: p.id,
+      name: p.name,
+      alive: p.alive,
+      isHost: p.isHost,
+      connected: p.connected,
+    }))
+    gameStore.setTieCandidates(mapped)
+    gameStore.resetVoting()
+    uiStore.showInfo(i18n.global.t('game.tieVoteMessage'), i18n.global.t('game.tieVoteTitle'))
+    tieVoteCallbacks.forEach((cb) => cb())
+  }
+
+  function onGameFinished({ winner }: { winner: 'players' | 'impostor' }) {
+    gameStore.setPhase('finished')
+    gameStore.setLastRoundResult({ winner })
+  }
+
+  function onRoomEnded() {
+    // Fix 3: limpiar la sesión local para que una reconexión posterior
+    // no intente recuperar una sala que ya terminó
+    localStorage.removeItem('impostor-session')
+    gameStore.$reset()
+    router.push({ name: 'home' })
+  }
+
+  function onDisconnect() {
+    rejoinAttempted = false
+    gameStore.setReconnecting(true)
+    errorCallbacks.forEach((cb) => cb())
+  }
+
+  function onConnectError() {
+    gameStore.setReconnecting(true)
+    errorCallbacks.forEach((cb) => cb())
+  }
+
+  onMounted(() => {
+    socket.on('connect', onConnect)
+    socket.on('roomJoined', onRoomJoined)
+    socket.on('roomState', onRoomState)
+    socket.on('playersUpdated', onPlayersUpdated)
+    socket.on('errorMessage', onErrorMessage)
+    socket.on('gameStarted', onGameStartedEvent)
+    socket.on('phaseChanged', onPhaseChanged)
+    socket.on('yourRole', onYourRole)
+    socket.on('turnChanged', onTurnChanged)
+    socket.on('wordAdded', onWordAdded)
+    socket.on('roundResult', onRoundResult)
+    socket.on('voteConfirmed', onVoteConfirmed)
+    socket.on('tieVote', onTieVoteEvent)
+    socket.on('gameFinished', onGameFinished)
+    socket.on('roomEnded', onRoomEnded)
+    socket.on('disconnect', onDisconnect)
+    socket.on('connect_error', onConnectError)
   })
 
   onUnmounted(() => {
-    socket.off('connect', handleConnect)
-    socket.off('roomJoined')
-    socket.off('roomState')
-    socket.off('playersUpdated')
-    socket.off('errorMessage')
-    socket.off('yourRole')
-    socket.off('gameStarted')
-    socket.off('phaseChanged')
-    socket.off('turnChanged')
-    socket.off('wordAdded')
-    socket.off('roundResult')
-    socket.off('gameFinished')
-    socket.off('roomEnded')
-    socket.off('tieVote')
-    socket.off('disconnect')
-    socket.off('connect_error')
+    socket.off('connect', onConnect)
+    socket.off('roomJoined', onRoomJoined)
+    socket.off('roomState', onRoomState)
+    socket.off('playersUpdated', onPlayersUpdated)
+    socket.off('errorMessage', onErrorMessage)
+    socket.off('gameStarted', onGameStartedEvent)
+    socket.off('phaseChanged', onPhaseChanged)
+    socket.off('yourRole', onYourRole)
+    socket.off('turnChanged', onTurnChanged)
+    socket.off('wordAdded', onWordAdded)
+    socket.off('roundResult', onRoundResult)
+    socket.off('voteConfirmed', onVoteConfirmed)
+    socket.off('tieVote', onTieVoteEvent)
+    socket.off('gameFinished', onGameFinished)
+    socket.off('roomEnded', onRoomEnded)
+    socket.off('disconnect', onDisconnect)
+    socket.off('connect_error', onConnectError)
 
     roomJoinedCallbacks.length = 0
     errorCallbacks.length = 0
@@ -249,7 +286,7 @@ export function useGameSocket() {
   return {
     socket,
     gameStore,
-    onRoomJoined,
+    onRoomJoined: onRoomJoinedCallback,
     onError,
     onTieVote,
     onGameStarted,

@@ -352,7 +352,8 @@ function submitVote() {
     voteEpoch: gameStore.voteEpoch,
   })
 
-  gameStore.markAsVoted()
+  // S3.2: no marcar hasVoted hasta que el servidor confirme con voteConfirmed
+  // Si el servidor rechaza, onError resetea isSubmittingVote y permite reintento
 }
 
 function startWordsRound() {

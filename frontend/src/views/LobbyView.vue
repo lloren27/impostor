@@ -38,6 +38,7 @@
       <button v-if="isHost" class="btn btn--secondary" @click="startGame">{{ startLabel }}</button>
       <button v-if="isHost" class="btn" @click="copyInviteLink">Copiar enlace</button>
       <button v-if="isHost" class="btn" @click="shareByWhatsApp">Compartir por WhatsApp</button>
+      <button class="btn btn--secondary btn--leave" @click="exitToHome">Salir de la sala</button>
     </footer>
   </main>
 </template>
@@ -54,7 +55,7 @@ useHead({
 })
 
 const route = useRoute()
-const { socket, gameStore } = useGameSocket()
+const { socket, gameStore, exitToHome } = useGameSocket()
 const uiStore = useUiStore()
 
 const roomCode = computed(() => route.params.code as string)

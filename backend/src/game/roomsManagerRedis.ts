@@ -130,6 +130,9 @@ export async function createRoom(
       votes: [],
       winner: null,
       tieCandidates: null,
+      lastEliminatedId: null,
+      lastEliminatedName: null,
+      lastEliminatedWasImpostor: null,
     };
 
     const created = await atomicCreateRoom(code, room, ROOM_TTL_SECONDS);
@@ -177,7 +180,7 @@ export async function joinOrRejoinRoom(
   socketId: string,
   name: string,
   playerToken?: string
-): Promise<{ room: Room; player: Player; isRejoin: boolean; oldSocketId: string | null }> {
+): Promise<{ room: Room; player: Player; isRejoin: boolean; oldSocketId: string | null; currentPlayerId?: string | null }> {
   return updateRoom(roomCode, room => {
     pruneDisconnected(room);
     if (room.players.length === 0) throw new Error("ROOM_EMPTY");
@@ -195,7 +198,8 @@ export async function joinOrRejoinRoom(
 
         // Si ha cambiado nombre, opcionalmente lo actualizas:
         if (name && existing.name !== name) existing.name = name;
-        return { room, player: existing, isRejoin: true, oldSocketId };
+        const currentPlayerId = recoverTurnOnRejoin(room);
+        return { room, player: existing, isRejoin: true, oldSocketId, currentPlayerId };
       }
       // Si el token no existe en la sala, seguimos como join normal
     }
@@ -228,7 +232,7 @@ export async function rejoinRoom(
   roomCode: string,
   token: string,
   newSocketId: string
-): Promise<{ room: Room; player: Player; oldSocketId: string | null }> {
+): Promise<{ room: Room; player: Player; oldSocketId: string | null; currentPlayerId?: string | null }> {
   return updateRoom(roomCode, room => {
     pruneDisconnected(room);
     if (room.players.length === 0) throw new Error("ROOM_EMPTY");
@@ -242,28 +246,250 @@ export async function rejoinRoom(
     syncSocketId(player, newSocketId);
     player.connected = true;
     player.disconnectedAt = null;
-    return { room, player, oldSocketId };
+    const currentPlayerId = recoverTurnOnRejoin(room);
+    return { room, player, oldSocketId, currentPlayerId };
   });
+}
+
+function recoverTurnOnRejoin(room: Room): string | null | undefined {
+  if (room.phase !== "words") return undefined;
+  const currentId = room.baseOrder[room.currentTurnIndex];
+  if (room.players.some(p => p.id === currentId && p.connected)) return undefined;
+  return advanceToConnectedTurn(room);
 }
 
 export async function markPlayerDisconnected(
   roomCode: string,
   socketId: string
-) {
+): Promise<{
+  room: Room;
+  voteResolved?: {
+    eliminatedPlayer: Player | null;
+    wasImpostor: boolean | null;
+    winner: "players" | "impostor" | null;
+    isTie: boolean;
+    tieCandidates: Player[] | null;
+  };
+  currentPlayerId?: string | null;
+} | undefined> {
   return updateRoom(roomCode, room => {
     pruneDisconnected(room);
     if (room.players.length === 0) throw new Error("ROOM_EMPTY");
 
     const player = room.players.find((p) => p.socketId === socketId);
-    if (!player) return;
-
-    player.socketId = null;
-    player.connected = false;
-    player.disconnectedAt = Date.now();
+    if (player) {
+      player.socketId = null;
+      player.connected = false;
+      player.disconnectedAt = Date.now();
+    }
 
     // Reasignación host "si hace falta" (pero solo a conectados)
     ensureHost(room);
 
+    // S3.3: si la fase es voting, verificar si la votación puede resolverse
+    // porque un votante elegible se desconectó. Esta comprobación se ejecuta
+    // incluso si el jugador ya estaba marcado como desconectado en Redis
+    // (por ejemplo, si otro proceso ya lo actualizó).
+    if (room.phase === "voting") {
+      const eligibleVoters = room.players.filter((p) => p.alive && p.connected);
+      const eligibleIds = new Set(eligibleVoters.map((p) => p.id));
+      // Filtrar votos de jugadores ya no elegibles
+      const filteredVotes = room.votes.filter((v) => eligibleIds.has(v.voterId));
+      const votesChanged = filteredVotes.length !== room.votes.length;
+      room.votes = filteredVotes;
+
+      // Si los votos restantes ya cubren a todos los elegibles conectados,
+      // resolver la votación
+      if (room.votes.length >= eligibleVoters.length && eligibleVoters.length > 0) {
+        const result = resolvePendingVote(room);
+        return { room, voteResolved: result };
+      }
+
+      // Si no se resolvió y no hubo cambios en los votos, evitar guardar
+      // la sala innecesariamente (evita conflictos con submitVote)
+      if (!votesChanged && !player) {
+        // No hay cambios: retornar sin modificar la sala
+        // (updateRoom detectará que room no cambió y no guardará)
+      }
+    }
+
+    // S3.3: si la fase es words o revealRound y el jugador que se desconectó
+    // tenía el turno, avanzar al siguiente jugador conectado.
+    if (room.phase === "words" || room.phase === "revealRound") {
+      const currentPlayerId = advanceToConnectedTurn(room);
+      return { room, currentPlayerId };
+    }
+
+    return { room };
+  }, { missingOk: true });
+}
+
+/**
+ * S3.1 — removePlayerFromPreviousRoom: elimina al jugador de la sala anterior
+ * en Redis cuando cambia de sala (createRoom/joinRoom). Si la sala estaba en
+ * votación, verifica si la partida puede resolverse sin ese jugador.
+ * Retorna la sala actualizada y, si aplica, el resultado de la votación.
+ */
+export async function removePlayerFromPreviousRoom(
+  roomCode: string,
+  playerId: string
+): Promise<{
+  room: Room;
+  voteResolved?: {
+    eliminatedPlayer: Player | null;
+    wasImpostor: boolean | null;
+    winner: "players" | "impostor" | null;
+    isTie: boolean;
+    tieCandidates: Player[] | null;
+  };
+} | undefined> {
+  return updateRoom(roomCode, room => {
+    if (room.players.length === 0) throw new Error("ROOM_EMPTY");
+    const idx = room.players.findIndex((p) => p.id === playerId);
+    if (idx === -1) return { room };
+    const [departedPlayer] = room.players.splice(idx, 1);
+    if (room.players.length === 0) {
+      throw new Error("ROOM_EMPTY");
+    }
+    ensureHost(room);
+
+    // Si la sala estaba en votación, verificar si puede resolverse
+    // sin el jugador que se fue
+    if (room.phase === "voting") {
+      const eligibleVoters = room.players.filter((p) => p.alive && p.connected);
+      const eligibleIds = new Set(eligibleVoters.map((p) => p.id));
+      // Filtrar votos de jugadores ya no elegibles (incluido el que se fue)
+      const filteredVotes = room.votes.filter((v) => eligibleIds.has(v.voterId));
+      room.votes = filteredVotes;
+
+      // Si había votos contra quien abandona, su salida resuelve la ronda:
+      // ese candidato ya no puede participar en una votación posterior.
+      const departedWasVoted = room.votes.some(v => v.targetId === departedPlayer.id);
+      if (eligibleVoters.length > 0 &&
+          (departedWasVoted || room.votes.length >= eligibleVoters.length)) {
+        const result = resolvePendingVote(room, departedPlayer, departedWasVoted);
+        return { room, voteResolved: result };
+      }
+    }
+
+    return { room };
+  }, { missingOk: true });
+}
+
+/**
+ * S3.3 — resolvePendingVote: resuelve la votación con los votos actuales
+ * sin añadir uno nuevo. Se usa cuando un votante se desconecta y los votos
+ * restantes ya cubren a todos los elegibles.
+ */
+function resolvePendingVote(room: Room, departedPlayer?: Player, departedWasVoted = false): {
+  eliminatedPlayer: Player | null;
+  wasImpostor: boolean | null;
+  winner: "players" | "impostor" | null;
+  isTie: boolean;
+  tieCandidates: Player[] | null;
+} {
+  const count: Record<string, number> = {};
+  room.votes.forEach((v: any) => {
+    count[v.targetId] = (count[v.targetId] || 0) + 1;
+  });
+
+  const entries = Object.entries(count);
+  if (entries.length === 0) {
+    return {
+      eliminatedPlayer: null,
+      wasImpostor: null,
+      winner: null,
+      isTie: false,
+      tieCandidates: null,
+    };
+  }
+
+  const maxVotes = Math.max(...entries.map(([, n]) => n));
+  const topCandidateIds = entries
+    .filter(([, n]) => n === maxVotes)
+    .map(([id]) => id);
+
+  if (topCandidateIds.length > 1 && !departedWasVoted &&
+      !topCandidateIds.includes(departedPlayer?.id ?? "")) {
+    room.tieCandidates = topCandidateIds as any;
+    room.voteEpoch = (room.voteEpoch ?? 0) + 1;
+    room.votes = [];
+    const candidates = room.players.filter((p) =>
+      topCandidateIds.includes(p.id)
+    );
+    return {
+      eliminatedPlayer: null,
+      wasImpostor: null,
+      winner: null,
+      isTie: true,
+      tieCandidates: candidates,
+    };
+  }
+
+  // Un jugador que abandona la sala no puede participar en un desempate.
+  const eliminatedId = departedWasVoted || topCandidateIds.includes(departedPlayer?.id ?? "")
+    ? departedPlayer!.id
+    : topCandidateIds[0];
+  const eliminatedPlayer = room.players.find((p) => p.id === eliminatedId) ??
+    (departedPlayer?.id === eliminatedId ? departedPlayer : undefined);
+  if (!eliminatedPlayer) throw new Error("PLAYER_NOT_FOUND");
+  eliminatedPlayer.alive = false;
+
+  const wasImpostor = eliminatedPlayer.id === room.impostorId;
+
+  room.tieCandidates = null;
+  room.votes = [];
+  room.lastEliminatedId = eliminatedId;
+  room.lastEliminatedName = eliminatedPlayer.name;
+  room.lastEliminatedWasImpostor = wasImpostor;
+
+  if (wasImpostor) {
+    room.phase = "finished";
+    room.winner = "players";
+    return { eliminatedPlayer, wasImpostor, winner: "players", isTie: false, tieCandidates: null };
+  }
+
+  const aliveNow = room.players.filter((p) => p.alive);
+  if (aliveNow.length === 2) {
+    room.phase = "finished";
+    room.winner = "impostor";
+    return { eliminatedPlayer, wasImpostor, winner: "impostor", isTie: false, tieCandidates: null };
+  }
+
+  room.currentRound += 1;
+  room.phase = "revealRound";
+  return { eliminatedPlayer, wasImpostor, winner: null, isTie: false, tieCandidates: null };
+}
+
+/**
+ * S3.1 — leaveRoom: el jugador abandona explícitamente la sala.
+ * Lo elimina del array de jugadores, reasigna el host si es necesario
+ * y borra la sala si queda vacía (mediante ROOM_EMPTY que updateRoom detecta).
+ */
+export async function leaveRoom(
+  roomCode: string,
+  socketId: string
+): Promise<{ room: Room | null; playerRemoved: boolean }> {
+  return updateRoom(roomCode, room => {
+    if (room.players.length === 0) throw new Error("ROOM_EMPTY");
+
+    const playerIndex = room.players.findIndex((p) => p.socketId === socketId);
+    if (playerIndex === -1) {
+      // El socket ya no está asociado (posible salida repetida o desconexión previa)
+      return { room, playerRemoved: false };
+    }
+
+    room.players.splice(playerIndex, 1);
+
+    // Si la sala queda vacía, lanzar ROOM_EMPTY para que updateRoom la borre
+    if (room.players.length === 0) {
+      throw new Error("ROOM_EMPTY");
+    }
+
+    // Reasignar host si el que sale era el anfitrión
+    ensureHost(room);
+
+    return { room, playerRemoved: true };
   }, { missingOk: true });
 }
 
@@ -335,6 +561,9 @@ function assignRoles(room: Room) {
   room.votes = [];
   room.winner = null;
   room.tieCandidates = null;
+  room.lastEliminatedId = null;
+  room.lastEliminatedName = null;
+  room.lastEliminatedWasImpostor = null;
 
   room.baseOrder = room.players.filter((p) => p.alive).map((p) => p.id);
   room.roundStartIndex = 0;
@@ -358,7 +587,7 @@ export async function restartGame(roomCode: string, callerSocketId: string) {
 export async function startWordsRound(
   roomCode: string,
   callerSocketId: string
-): Promise<{ room: Room; currentPlayerId: string }> {
+): Promise<{ room: Room; currentPlayerId: string | null }> {
   return updateRoom(roomCode, room => {
     pruneDisconnected(room);
     if (room.players.length === 0) throw new Error("ROOM_EMPTY");
@@ -387,14 +616,34 @@ export async function startWordsRound(
     }
 
     room.currentTurnIndex = room.roundStartIndex;
-    const currentPlayerId = room.baseOrder[room.currentTurnIndex];
+
+    // S3.3: no asignar turno inicial a un jugador desconectado
+    const currentPlayerId = advanceToConnectedTurn(room);
     return { room, currentPlayerId };
   });
 }
 
 /**
- * submitWord robusto: recibe playerId (estable) + callerSocketId (para sync)
+ * S3.3 — Avanza currentTurnIndex hasta encontrar un jugador conectado.
+ * Si todos están desconectados, devuelve null sin modificar el índice.
  */
+function advanceToConnectedTurn(room: Room): string | null {
+  const totalAlive = room.baseOrder.length;
+  if (totalAlive === 0) return null;
+
+  // Intentar hasta totalAlive posiciones; si no hay nadie conectado, devolver null
+  for (let i = 0; i < totalAlive; i++) {
+    const candidateId = room.baseOrder[room.currentTurnIndex];
+    const candidate = room.players.find((p) => p.id === candidateId);
+    if (candidate && candidate.connected) {
+      return candidateId;
+    }
+    // Avanzar al siguiente
+    room.currentTurnIndex = (room.currentTurnIndex + 1) % totalAlive;
+  }
+  return null;
+}
+
 export async function submitWord(
   roomCode: string,
   playerId: string,
@@ -432,17 +681,25 @@ export async function submitWord(
     const newWord = { playerId: player.id, word };
     room.words.push(newWord);
 
-    const turnsDone =
-      ((room.currentTurnIndex - room.roundStartIndex + totalAlive) % totalAlive) +
-      1;
+    // S3.3 fix: contar palabras de jugadores conectados para la condición de cierre
+    // en vez de usar distancia de índices (que incluye desconectados).
+    const connectedInOrder = room.baseOrder.filter(
+      (id) => room.players.find((p) => p.id === id)?.connected
+    );
+    const wordsByConnected = room.words.filter(
+      (w) => connectedInOrder.includes(w.playerId)
+    ).length;
 
-    if (turnsDone >= totalAlive) {
+    // La ronda termina cuando todos los conectados han escrito una palabra
+    if (wordsByConnected >= connectedInOrder.length) {
       room.phase = "voting";
       return { room, finishedRound: true, currentPlayerId: null, newWord };
     }
 
     room.currentTurnIndex = (room.currentTurnIndex + 1) % totalAlive;
-    const nextPlayerId = room.baseOrder[room.currentTurnIndex];
+
+    // S3.3: avanzar al siguiente jugador conectado
+    const nextPlayerId = advanceToConnectedTurn(room);
     return { room, finishedRound: false, currentPlayerId: nextPlayerId, newWord };
   });
 }
@@ -498,24 +755,48 @@ export async function submitVote(
       if (!tieIds.includes(targetId)) throw new Error("INVALID_TARGET_TIE");
     }
 
-    const alreadyVoted = room.votes.find((v: any) => v.voterId === voter.id);
-    if (alreadyVoted) throw new Error("ALREADY_VOTED");
-
-    room.votes.push({ voterId: voter.id, targetId });
-
     const eligibleIds = new Set(eligibleVoters.map((p) => p.id));
     room.votes = room.votes.filter((v) => eligibleIds.has(v.voterId));
 
-    if (room.votes.length < totalEligible) {
-      return {
-        room,
-        finishedVoting: false,
-        eliminatedPlayer: null,
-        wasImpostor: null,
-        winner: null,
-        isTie: false,
-        tieCandidates: null,
-      };
+    // S3.3: si todos los elegibles ya votaron (por ejemplo, un votante se
+    // desconectó y su voto fue filtrado), resolver la votación antes de
+    // procesar el voto del jugador actual.
+    if (room.votes.length >= totalEligible) {
+      // El votante actual ya no cuenta como pendiente; si ya votó,
+      // no necesita enviar otro voto — la votación se resuelve con los votos existentes.
+      const alreadyVoted = room.votes.find((v: any) => v.voterId === voter.id);
+      if (alreadyVoted) {
+        // El jugador ya votó y la votación puede resolverse
+        // (no necesita enviar un nuevo voto).
+        // Caer en la lógica de resolución más abajo.
+      } else {
+        // El jugador no ha votado pero los votos existentes ya cubren
+        // a todos los elegibles (incluido este jugador si vota ahora).
+        // Añadir el voto y continuar.
+        room.votes.push({ voterId: voter.id, targetId });
+      }
+      // votes.length >= totalEligible: saltar la comprobación y resolver.
+    } else {
+      // Votación aún pendiente: verificar si el jugador ya votó.
+      const alreadyVoted = room.votes.find((v: any) => v.voterId === voter.id);
+      if (alreadyVoted) throw new Error("ALREADY_VOTED");
+
+      room.votes.push({ voterId: voter.id, targetId });
+
+      // Re-filtrar después de añadir el voto (por si elegibilidad cambió)
+      room.votes = room.votes.filter((v) => eligibleIds.has(v.voterId));
+
+      if (room.votes.length < totalEligible) {
+        return {
+          room,
+          finishedVoting: false,
+          eliminatedPlayer: null,
+          wasImpostor: null,
+          winner: null,
+          isTie: false,
+          tieCandidates: null,
+        };
+      }
     }
 
     const count: Record<string, number> = {};
@@ -557,6 +838,9 @@ export async function submitVote(
 
     room.tieCandidates = null;
     room.votes = [];
+    room.lastEliminatedId = eliminatedId;
+    room.lastEliminatedName = eliminatedPlayer.name;
+    room.lastEliminatedWasImpostor = wasImpostor;
 
     if (wasImpostor) {
       room.phase = "finished";
@@ -605,7 +889,7 @@ export async function submitVote(
 export async function startNextRound(
   roomCode: string,
   callerSocketId: string
-): Promise<{ room: Room; currentPlayerId: string }> {
+): Promise<{ room: Room; currentPlayerId: string | null }> {
   return updateRoom(roomCode, room => {
     pruneDisconnected(room);
     if (room.players.length === 0) throw new Error("ROOM_EMPTY");
@@ -627,7 +911,8 @@ export async function startNextRound(
     room.roundStartIndex = (room.roundStartIndex + 1) % room.baseOrder.length;
     room.currentTurnIndex = room.roundStartIndex;
 
-    const currentPlayerId = room.baseOrder[room.currentTurnIndex];
+    // S3.3: no asignar turno inicial a un jugador desconectado
+    const currentPlayerId = advanceToConnectedTurn(room);
     return { room, currentPlayerId };
   });
 }

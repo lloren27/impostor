@@ -9,7 +9,7 @@ import skipFormatting from '@vue/eslint-config-prettier/skip-formatting';
 export default defineConfigWithVueTs({
     name: 'app/files-to-lint',
     files: ['**/*.{ts,mts,tsx,vue}'],
-}, globalIgnores(['**/dist/**', '**/dist-ssr/**', '**/coverage/**']), pluginVue.configs['flat/essential'], vueTsConfigs.recommended, skipFormatting, 
+}, globalIgnores(['**/dist/**', '**/dist-ssr/**', '**/coverage/**', '**/vite.config.js']), pluginVue.configs['flat/essential'], vueTsConfigs.recommended, skipFormatting,
 // env.d.ts: DefineComponent usa {} y any en la firma de Vue; no es seguro cambiarlos.
 {
     name: 'app/allow-vue-declare-module',

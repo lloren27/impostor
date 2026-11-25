@@ -335,16 +335,12 @@ async function testStartNextRoundRequiresHost() {
   // Socket2 intenta iniciar ronda — debería recibir ONLY_HOST_CAN_START.
   // Index.ts verifica el host ANTES de llamar al gestor, así que el error
   // es ONLY_HOST_CAN_START independientemente de la fase actual.
-  let gotCorrectError = false;
-  socket2.once("errorMessage", (err: any) => {
-    gotCorrectError = err.code === "ONLY_HOST_CAN_START";
-  });
-
+  const rejected = waitForEvent(socket2, "errorMessage");
   socket2.emit("startNextRound", { roomCode });
-  await delay(300);
+  const [error] = await rejected;
 
   assert(
-    gotCorrectError,
+    error.code === "ONLY_HOST_CAN_START",
     "socket2 debería recibir ONLY_HOST_CAN_START al intentar iniciar ronda sin ser host"
   );
 
@@ -748,17 +744,13 @@ async function testInvalidTransition() {
 
   // La sala está en fase 'waiting' (lobby). Intentar startWordsRound
   // debería fallar sin modificar la sala.
-  let gotError = false;
-  socket1.once("errorMessage", () => {
-    gotError = true;
-  });
-
+  const rejected = waitForEvent(socket1, "errorMessage");
   socket1.emit("startWordsRound", { roomCode });
-  await delay(300);
+  const [error] = await rejected;
 
   assert(
-    gotError,
-    "startWordsRound en fase waiting debería recibir un error"
+    error.code === "NOT_REVEAL_ROUND",
+    `startWordsRound en fase waiting debería recibir NOT_REVEAL_ROUND, recibió ${error.code}`
   );
 
   // Verificar que la sala sigue intacta uniéndose

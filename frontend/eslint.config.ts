@@ -19,4 +19,14 @@ export default defineConfigWithVueTs(
   pluginVue.configs['flat/essential'],
   vueTsConfigs.recommended,
   skipFormatting,
+
+  // env.d.ts: DefineComponent usa {} y any en la firma de Vue; no es seguro cambiarlos.
+  {
+    name: 'app/allow-vue-declare-module',
+    files: ['env.d.ts'],
+    rules: {
+      '@typescript-eslint/no-empty-object-type': 'off',
+      '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
 )

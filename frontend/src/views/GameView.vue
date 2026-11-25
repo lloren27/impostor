@@ -269,6 +269,7 @@ import FullScreenLoader from '@/components/ui/FullScreenLoader.vue'
 import RoleAvatar from '@/components/ui/RoleAvatar.vue'
 import { useHead } from '@unhead/vue'
 import AppPopup from '@/components/ui/AppPopup.vue'
+import type { Player } from '@/interfaces/game.interface'
 
 useHead({
   meta: [{ name: 'robots', content: 'noindex, nofollow' }],
@@ -297,7 +298,7 @@ const voteTargets = computed(() => {
   const me = gameStore.mePlayer
   const base = gameStore.players.filter((p) => p.alive && (!me || p.id !== me.id))
 
-  const tc: any[] | null = gameStore.tieCandidates as any
+  const tc: Player[] | null = gameStore.tieCandidates
   if (tc && tc.length > 0) {
     const ids = tc.map((x) => (typeof x === 'string' ? x : x.id))
     return base.filter((p) => ids.includes(p.id))
@@ -469,14 +470,15 @@ input::placeholder {
   font-size: 0.85rem;
   color: #9ca3af;
   margin-bottom: 8px;
-  &--warning {
-    color: #b45200;
-    background: #fff3e0;
-    padding: 0.5rem 0.75rem;
-    border-radius: 4px;
-    margin-bottom: 0.75rem;
-    font-size: 0.9rem;
-  }
+}
+
+.info-text--warning {
+  color: #b45200;
+  background: #fff3e0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
 }
 
 .buttons-finished {

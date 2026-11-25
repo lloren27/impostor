@@ -749,7 +749,7 @@ async function testInvalidTransition() {
   // La sala está en fase 'waiting' (lobby). Intentar startWordsRound
   // debería fallar sin modificar la sala.
   let gotError = false;
-  socket1.once("errorMessage", (err: any) => {
+  socket1.once("errorMessage", () => {
     gotError = true;
   });
 

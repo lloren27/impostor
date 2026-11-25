@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+      - name: Check backend types
+        working-directory: backend
+        run: npm run type-check
+      - name: Lint backend
+        working-directory: backend
+        run: npm run lint
+      - name: Build backend
+        working-directory: backend
+        run: npm run build
+      - name: Configure isolated integration Redis
+        working-directory: backend
+        env:
+          TEST_REDIS_URL: ${{ secrets.UPSTASH_TEST_REDIS_REST_URL }}
+          TEST_REDIS_TOKEN: ${{ secrets.UPSTASH_TEST_REDIS_REST_TOKEN }}
+        run: |
+          if [ -z "$TEST_REDIS_URL" ] || [ -z "$TEST_REDIS_TOKEN" ]; then
+            printf '%s\n' 'Configure UPSTASH_TEST_REDIS_REST_URL and UPSTASH_TEST_REDIS_REST_TOKEN with a dedicated test database.' >&2
+            exit 1
+          fi
+          umask 077
+          printf 'UPSTASH_REDIS_REST_URL=%s\nUPSTASH_REDIS_REST_TOKEN=%s\n' "$TEST_REDIS_URL" "$TEST_REDIS_TOKEN" > .env.test
+      - name: Run backend regression suites
+        working-directory: backend
+        run: npm run test:regressions
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Check frontend types
+        working-directory: frontend
+        run: npm run type-check
+      - name: Lint frontend
+        working-directory: frontend
+        run: npm run lint
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          VITE_BACKEND_URL: https://ci.invalid
+        run: npm run build-only

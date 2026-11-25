@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawn, ChildProcess } from "node:child_process";
-import { randomUUID, createHash } from "node:crypto";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { parse } from "dotenv";
 import { Redis } from "@upstash/redis";

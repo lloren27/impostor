@@ -9,7 +9,6 @@ import { Server as SocketIOServer } from "socket.io";
 import {
   getRoom,
   createRoom,
-  joinRoom,
   rejoinRoom,
   startGame,
   startWordsRound,
@@ -25,6 +24,7 @@ import {
 } from "./game/roomsManagerRedis";
 import { KNOWN_ERROR_CODES } from "./constants/errors";
 import { GameMode, Player, Room, toPublicPlayer } from "./game/types";
+import { recordMetric } from "./metrics";
 import {
   validateEvent,
   validateName,
@@ -65,6 +65,7 @@ app.get("/rooms/:code", async (req, res) => {
   } catch (err) {
     logError("GET /rooms/:code", err);
     const code = getErrorCode(err);
+    recordMetric(code === "UNKNOWN" ? "errors" : "rejections");
     if (code === "RATE_LIMITED") res.setHeader("Retry-After", "60");
     return res.status(code === "RATE_LIMITED" ? 429 : code === "INVALID_ROOM_CODE" ? 400 : 503).json({ exists: false, code });
   }
@@ -76,9 +77,10 @@ const io = new SocketIOServer(server, {
   cors: { origin: allowedOrigins, credentials: true },
   maxHttpBufferSize: 4096,
   allowRequest: (req, callback) => {
-    if (!originAllowed(req.headers.origin)) { callback(null, false); return; }
+    if (!originAllowed(req.headers.origin)) { recordMetric("rejections"); callback(null, false); return; }
     consumeRate("handshake", clientIP(req)).then(
-      () => callback(null, true), () => callback(null, false),
+      () => callback(null, true),
+      () => { recordMetric("rejections"); callback(null, false); },
     );
   },
   pingInterval: 10000,
@@ -96,6 +98,7 @@ function safeEmitError(
   fallbackCode: string = "UNKNOWN"
 ) {
   const code = getErrorCode(err, fallbackCode);
+  recordMetric(code === "UNKNOWN" ? "errors" : "rejections");
   // S1.3: no enviar el mensaje raw del servidor al cliente
   socket.emit("errorMessage", { code, message: code });
 }
@@ -212,6 +215,7 @@ io.on("connection", (socket) => {
         socket.data.roomCode = room.code;
         socket.data.playerId = player.id;
         socket.join(room.code);
+        recordMetric("reconnections");
 
         // S1.1: roomJoined solo con datos públicos + token propio en campo separado
         socket.emit("roomJoined", {
@@ -379,6 +383,7 @@ io.on("connection", (socket) => {
         socket.data.roomCode = room.code;
         socket.data.playerId = player.id;
         socket.join(room.code);
+        if (isRejoin) recordMetric("reconnections");
 
         // S1.1: roomJoined con datos públicos
         socket.emit("roomJoined", {
@@ -707,6 +712,7 @@ io.on("connection", (socket) => {
         });
       }
     } catch (err: any) {
+      recordMetric("errors");
       logError("leaveRoom", err);
     }
   });
@@ -740,6 +746,7 @@ io.on("connection", (socket) => {
         }
       }
     } catch (err: any) {
+      recordMetric("errors");
       logError("disconnect", err);
     }
   });

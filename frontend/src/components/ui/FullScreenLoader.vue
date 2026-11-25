@@ -1,12 +1,12 @@
 <template>
   <div class="overlay">
-    <Spinner size="large" />
+    <LoadingSpinner size="large" />
     <p v-if="text">{{ text }}</p>
   </div>
 </template>
 
 <script setup lang="ts">
-import Spinner from './Spinner.vue'
+import LoadingSpinner from './LoadingSpinner.vue'
 
 defineProps<{
   text?: string

@@ -1,10 +1,10 @@
 <template>
   <div
-    class="spinner"
+    class="loading-spinner"
     :class="{
-      'spinner--small': size === 'small',
-      'spinner--medium': size === 'medium',
-      'spinner--large': size === 'large',
+      'loading-spinner--small': size === 'small',
+      'loading-spinner--medium': size === 'medium',
+      'loading-spinner--large': size === 'large',
     }"
   ></div>
 </template>
@@ -23,24 +23,24 @@ const size = props.size
 </script>
 
 <style scoped>
-.spinner {
+.loading-spinner {
   border: 4px solid #e0e0e0;
   border-top-color: var(--color-primary, #333);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
 
-.spinner--small {
+.loading-spinner--small {
   width: 24px;
   height: 24px;
 }
 
-.spinner--medium {
+.loading-spinner--medium {
   width: 40px;
   height: 40px;
 }
 
-.spinner--large {
+.loading-spinner--large {
   width: 70px;
   height: 70px;
 }

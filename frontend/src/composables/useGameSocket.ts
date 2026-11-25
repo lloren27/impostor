@@ -2,7 +2,7 @@ import { onMounted, onUnmounted } from 'vue'
 import router from '@/router'
 import { socket } from '@/services/socket'
 import { useGameStore } from '@/stores/gameStore'
-import { GamePhase } from '@/interfaces/game.interface'
+import { GamePhase, Player, WordEntry } from '@/interfaces/game.interface'
 import { useUiStore } from '@/stores/uiStore'
 import { i18n } from '@/i18n'
 import { GameMode } from '../interfaces/game.interface'
@@ -39,9 +39,11 @@ export function useGameSocket() {
   }
 
   // ahora los callbacks reciben el payload
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const roomJoinedCallbacks: Array<(payload: any) => void> = []
   const errorCallbacks: Array<() => void> = []
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function onRoomJoinedCallback(cb: (payload: any) => void) {
     roomJoinedCallbacks.push(cb)
   }
@@ -85,6 +87,7 @@ export function useGameSocket() {
     socket.emit('rejoinRoom', { roomCode, playerToken })
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function onRoomJoined(payload: any) {
     gameStore.setReconnecting(false)
     gameStore.setRoomJoined(payload)
@@ -93,6 +96,7 @@ export function useGameSocket() {
     roomJoinedCallbacks.forEach((cb) => cb(payload))
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function onRoomState(state: any) {
     gameStore.applySnapshot({
       roomCode: state.roomCode,
@@ -121,7 +125,7 @@ export function useGameSocket() {
     }
   }
 
-  function onPlayersUpdated({ players }: { players: any[] }) {
+  function onPlayersUpdated({ players }: { players: Player[] }) {
     gameStore.updatePlayers(players)
   }
 
@@ -148,7 +152,7 @@ export function useGameSocket() {
     mode,
   }: {
     phase: GamePhase
-    players: any[]
+    players: Player[]
     roomCode: string
     currentRound?: number
     voteEpoch?: number
@@ -186,10 +190,11 @@ export function useGameSocket() {
     gameStore.setCurrentTurn(currentPlayerId)
   }
 
-  function onWordAdded({ playerId, word, words }: { playerId: string; word: string; words: any[] }) {
+  function onWordAdded({ playerId, word, words }: { playerId: string; word: string; words: WordEntry[] }) {
     gameStore.addWord({ playerId, word }, words)
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function onRoundResult(payload: any) {
     gameStore.setLastRoundResult(payload)
   }
@@ -199,9 +204,9 @@ export function useGameSocket() {
     gameStore.markAsVoted()
   }
 
-  function onTieVoteEvent({ tieCandidates, voteEpoch }: { tieCandidates: any[]; voteEpoch: number }) {
+  function onTieVoteEvent({ tieCandidates, voteEpoch }: { tieCandidates: Player[]; voteEpoch: number }) {
     gameStore.voteEpoch = voteEpoch ?? 0
-    const mapped = tieCandidates.map((p: any) => ({
+    const mapped = tieCandidates.map((p: Player) => ({
       id: p.id,
       name: p.name,
       alive: p.alive,

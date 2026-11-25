@@ -20,7 +20,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed } from 'vue'
 
 import impostorImg from '@/assets/roles/impostor.png'
 import citizenImg from '@/assets/roles/citizen.png'

@@ -310,7 +310,6 @@ async function testEliminatedPlayerLeavesThenReconnect() {
     );
 
     // Alice se desconecta y reconecta (simula recarga)
-    const aliceToken = (aliceSocket as any).data?.playerToken;
     // Necesitamos el token de Alice — obtenerlo de Redis
     const roomForToken = await redis.get<any>(roomKey);
     const alicePlayer = roomForToken.players.find((p: any) => p.id === aliceId);
@@ -719,9 +718,7 @@ async function testHostDisconnectReassignsHost() {
   sockets.push(s3);
   const joined3 = waitForEvent(s3, "roomJoined");
   s3.emit("joinRoom", { roomCode, name: "Charlie" });
-  const [rj3] = await joined3;
-  const charlieId = rj3.playerId;
-
+  await joined3;
   await delay(300);
 
   try {
@@ -803,10 +800,6 @@ async function testTurnPlayerDisconnectAdvancesTurn() {
   }
 
   await delay(200);
-
-  const aliceId = playerIds[0];
-  const bobId = playerIds[1];
-  const charlieId = playerIds[2];
 
   try {
     const testEnv = loadTestEnv();

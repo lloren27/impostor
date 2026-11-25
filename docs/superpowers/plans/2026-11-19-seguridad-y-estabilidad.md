@@ -1,8 +1,8 @@
 # Plan de seguridad y estabilidad por sprints
 
 **Fecha:** 19 de noviembre de 2026.
-**Estado:** Sprints 1–3: implementación verificada (23 de noviembre de 2026). Sprint 4 pendiente; publicación no realizada.
-Validación de la corrección del 21 de noviembre de 2026: 11 pruebas de integración pasadas y 0 fallidas contra Upstash de pruebas. `testRepeatedTransitions` sigue `currentTurnIndex`, registra las esperas antes de emitir, persiste tres palabras y un voto, y compara fase y arrays completos tras el rechazo. La comprobación aislada cubre los tres turnos iniciales y detecta borrados de palabras/votos y cambios de autor/orden. Las 20 ejecuciones documentadas anteriormente correspondían a la versión previa de la prueba, no a esta corrección. La auditoría trasladada a S4.1 y la invalidación durante la publicación mantienen su alcance documentado.
+**Estado:** Sprints 1–4: implementación y verificaciones locales completadas (25 de noviembre de 2026); ejecución de CI remoto y revisión de hosting pendientes. Publicación no realizada.
+Validación de la corrección del 21 de noviembre de 2026: 11 pruebas de integración pasadas y 0 fallidas contra Upstash de pruebas. `testRepeatedTransitions` sigue `currentTurnIndex`, registra las esperas antes de emitir, persiste tres palabras y un voto, y compara fase y arrays completos tras el rechazo. La comprobación aislada cubre los tres turnos iniciales y detecta borrados de palabras/votos y cambios de autor/orden. Las 20 ejecuciones documentadas anteriormente correspondían a la versión previa de la prueba, no a esta corrección. La auditoría diferida a S4.1 se completó el 25 de noviembre; la invalidación de tokens sigue reservada a una publicación autorizada.
 **Objetivo:** impedir la suplantación y la exposición de información privada, proteger la integridad de las partidas y mejorar su recuperación ante desconexiones.
 **Arquitectura:** conservar Vue, Pinia, Express, Socket.IO y Upstash Redis. Aplicar controles en el servidor, separar los datos públicos de los privados y hacer atómicas las modificaciones de cada sala.
 **Origen:** revisión del proyecto realizada en esta conversación; el inventario siguiente conserva sus hallazgos y límites.
@@ -81,8 +81,8 @@ El cierre de cada sprint requiere sus pruebas y criterios de aceptación. La pub
 - [x] En palabras y votos, comprobar que el jugador pertenece a la sala y su socket vigente coincide con el solicitante; eliminar la reasignación de `socketId` desde estas acciones.
   - Comparación estricta `player.socketId !== callerSocketId` en `submitWord` y `submitVote` (roomsManagerRedis.ts). Un jugador desconectado (`socketId === null`) también es rechazado.
 - [x] Pasar la identidad del solicitante a `startNextRound` y exigir anfitrión, en coherencia con las otras transiciones administrativas.
-- [ ] Comprobar fase, pertenencia y permisos en todas las acciones que modifican una sala.
-  - **Trasladado a Sprint 4 (S4.1):** las acciones mutantes actuales (`startGame`, `restartGame`, `startWordsRound`, `submitWord`, `submitVote`, `startNextRound`, `endGame`) ya comprueban fase, pertenencia y permisos. Una auditoría exhaustiva que cubra TODAS las acciones, incluyendo las futuras, se realizará en S4.1 como parte de la consolidación de verificaciones.
+- [x] Comprobar fase, pertenencia y permisos en todas las acciones que modifican una sala.
+  - **Verificado en S4.1 (25 de noviembre de 2026):** se revisaron las operaciones mutantes de `index.ts` y `roomsManagerRedis.ts`: `createRoom`/`joinRoom` limitan creación/entrada; `rejoinRoom` y `joinOrRejoinRoom` validan el token; `deleteRoom` exige anfitrión; `leaveRoom` exige la identidad asociada al socket; `startGame`, `restartGame`, `startWordsRound`, `submitWord`, `submitVote` y `startNextRound` comprueban host, fase, modo, turno o socket según la acción; `disconnect` solo procesa la conexión del evento. Las regresiones de permisos y transiciones están en `security.test.ts` y el viaje completo en `sprint4.test.ts`.
 - [x] Al sustituir una conexión mediante token válido, revocar el acceso de la conexión anterior a acciones y emisiones de la sala.
   - Se prueba tanto la vía `rejoinRoom` como `joinRoom` con `playerToken` (que usa `joinOrRejoinRoom`).
 
@@ -194,28 +194,29 @@ El cierre de cada sprint requiere sus pruebas y criterios de aceptación. La pub
 
 ### S4.1 — Consolidar verificaciones · QA-01
 
-- [ ] Resolver los 20 errores iniciales de ESLint sin desactivar reglas globalmente para ocultarlos.
-- [ ] Incorporar scripts de test y lint de comprobación, sin `--fix`, y documentar el entorno Node soportado.
-- [ ] Ejecutar en CI tipos, lint, regresiones y build de ambos paquetes; incluir Redis de prueba en las comprobaciones de integración.
-- [ ] Comprobar una partida completa de cada modo y una partida clásica con empate, reconexión y cambio de anfitrión.
-- [ ] Mantener una matriz de pruebas que vincule los IDs del inventario con sus regresiones.
+- [x] Resolver los 20 errores iniciales de ESLint sin desactivar reglas globalmente para ocultarlos.
+- [x] Incorporar scripts de test y lint de comprobación, sin `--fix`, y documentar el entorno Node soportado.
+- [ ] Ejecutar en CI tipos, lint, regresiones y build de ambos paquetes; incluir Redis de prueba en las comprobaciones de integración. El workflow está configurado y las verificaciones locales pasaron; el job remoto con Node 22 no se ejecutó: `gh` no está instalado y los cambios de esta rama siguen sin commit ni push. Ejecutarlo requiere una revisión remota que contenga estos cambios y los secretos de Redis de pruebas.
+- [x] Comprobar una partida completa de cada modo y una partida clásica con empate, reconexión y cambio de anfitrión (`sprint4.test.ts`, 3/3).
+- [x] Revisar las acciones mutantes aplazadas de S1.2: identidad, fase y permisos de host verificados por acción; `deleteRoom` exige anfitrión.
+- [x] Mantener una matriz de pruebas que vincule los IDs del inventario con sus regresiones (`docs/sprint4-release-readiness.md`).
 
 ### S4.2 — Auditar dependencias · DEP-01
 
-- [ ] Ejecutar `npm audit --json` en backend y frontend cuando haya acceso al registro.
-- [ ] Clasificar cada aviso por versión instalada, uso en producción/desarrollo y alcance real.
-- [ ] Actualizar de forma dirigida y revisar el diff del lockfile; no utilizar `npm audit fix --force` indiscriminadamente.
-- [ ] Repetir las verificaciones afectadas por las actualizaciones y documentar avisos residuales con motivo y siguiente acción.
+- [x] Ejecutar `npm audit --json` en backend y frontend cuando haya acceso al registro (25 de noviembre: 0 avisos en ambos).
+- [x] Clasificar los informes: no quedan avisos que requieran evaluación por paquete o entorno.
+- [x] Revisar las dependencias y lockfiles actualizados; no se necesitó otra actualización dirigida y no se usó `npm audit fix --force`.
+- [x] Repetir tipos, lint, builds y regresiones; no hay avisos residuales de auditoría.
 
 **Aceptación:** existe un informe reproducible de dependencias. Un fallo de red se registra como bloqueo, nunca como ausencia de vulnerabilidades.
 
 ### S4.3 — Preparar operación y publicación
 
-- [ ] Documentar variables mediante ejemplos sin secretos; `frontend/.env` versionado contenía una variable de URL, lo cual por sí solo no demuestra filtración de credenciales.
-- [ ] Revisar HTTPS/WSS, configuración de proxy y límites del proveedor en el entorno real cuando se disponga de acceso.
-- [ ] Registrar métricas de errores, rechazos, conflictos Redis y reconexiones sin tokens, roles ni contenido sensible.
-- [ ] Preparar compatibilidad de snapshots antiguos, invalidación de tokens expuestos, orden de publicación frontend/backend y reversión.
-- [ ] Documentar que una reversión no debe reactivar la exposición de secretos ni las acciones sin autorización.
+- [x] Documentar variables y restricciones sin secretos en `docs/sprint4-release-readiness.md` y proporcionar `backend/.env.test.example`; `frontend/.env` versionado contiene una URL local, no una credencial.
+- [ ] Revisar HTTPS/WSS, configuración de proxy y límites del proveedor en el entorno real cuando se disponga de acceso. No hay URL del entorno ni manifiestos de proveedor en el repositorio; la revisión requiere acceso y datos del hosting real.
+- [x] Registrar métricas de errores, rechazos, conflictos Redis y reconexiones sin tokens, roles ni contenido sensible.
+- [x] Preparar compatibilidad de snapshots antiguos, invalidación de tokens expuestos, orden de publicación frontend/backend y reversión.
+- [x] Documentar que una reversión no debe reactivar la exposición de secretos ni las acciones sin autorización.
 
 **Aceptación:** entrega revisable con resultados de pruebas, riesgos pendientes y procedimiento de recuperación. Solicitar autorización solo para publicar cuando exista una entrega concreta lista para revisar.
 
@@ -251,4 +252,4 @@ Para cerrar cada tarea:
 | 1 | Completado | `tsc --noEmit` y `type-check` sin errores; **11/11 pruebas de integración pasadas con la prueba corregida el 21 de noviembre de 2026** (`test:security`; una ejecución completa): revocación de socket por `rejoinRoom` y `joinRoom` con `playerToken` (rama `joinOrRejoinRoom`), privacidad en `roomJoined` (ruta `room.players` corregida, campos exigidos) y `playersUpdated`, permisos en `submitWord`/`submitVote`/`startNextRound`, rechazo de jugador desconectado (prueba directa del gestor vía manipulación de Redis: `socketId=null` con `submitWord` en fase words; aserciones dentro de `try/finally` para garantizar restauración), redacción de errores (caso conocido con igualdad exacta `message === code` + caso de error interno inesperado corrompiendo Redis que verifica `{code: "UNKNOWN"}` sin exponer marcador sensible), transiciones inválidas y transiciones repetidas (rechazo con `NOT_REVEAL_ROUND`; fase, palabras y votos en Redis intactos antes/después); `socketMap` en pruebas usa `playerId` individuales de cada `roomJoined`; aislamiento garantizado (`loadTestEnv` no hereda `process.env`, backend en puerto libre vía `findFreePort`); `.env.test` en `.gitignore` con plantilla `.env.test.example`; estrategia de invalidación durante el despliegue documentada | Invalidación de tokens expuestos: se ejecutará durante la ventana de mantenimiento al publicar. La casilla "Comprobar fase, pertenencia y permisos en todas las acciones" (S1.2) se traslada a S4.1. |
 | 2 | Implementación verificada | Upstash de pruebas: 11 pruebas de atomicidad y 6 de seguridad/operación; regresión Sprint 1: 11/11; tipos y builds de backend/frontend correctos. | Desplegar sin instancias escritoras de la versión anterior. Ajustar cuotas con métricas reales. Publicación pendiente de autorización. |
 | 3 | Implementación verificada | `tsc --noEmit` y `type-check` sin errores; `leaveRoom` con handler en index.ts, `exitToHome` emite al servidor, botón de salir en LobbyView; `applySnapshot` restaura estado completo con voto propio y resultado (lastEliminatedName, lastEliminatedWasImpostor); `advanceToConnectedTurn` salta desconectados en turnos; listeners por referencia; gestión de localStorage corrupto y sala expirada; membresía anterior resuelta en createRoom/joinRoom eliminando al jugador de Redis y emitiendo `playersUpdated` a la sala anterior (S3.1); `joinRoom` preserva la recuperación por token al volver a la misma sala; `voteConfirmed` confirma votos con reintento (S3.2); recálculo de elegibilidad en submitVote y resolución de votación al desconectarse un votante (S3.3); `removePlayerFromPreviousRoom` resuelve votación pendiente al cambiar de sala, incluso con votos contra el saliente; `emitVoteResolution` centraliza la emisión de resultados; `markPlayerDisconnected` avanza el turno en fase words/revealRound emitiendo `turnChanged`; pruebas de integración en `sprint3.test.ts`: **10/10 pasadas** (`npm run test:sprint3`), incluidas pruebas exhaustivas de desconexión (S3.3): reasignación de host al desconectarse el anfitrión, avance de turno verificado sin manipular Redis al desconectarse el jugador en turno, y sala abandonada con fase conservada al desconectarse todos los participantes durante una partida activa. | Publicación pendiente de autorización. |
-| 4 | Pendiente | — | Auditoría npm requiere red; despliegue aún no inspeccionado |
+| 4 | Cierre local completo; cierre operativo pendiente | 25 de noviembre de 2026: 41/41 regresiones; tipos, lint y builds de backend/frontend correctos; `npm audit --json`: 0 avisos en ambos; pruebas de partidas `classic`/`manual`, empate, reconexión y transferencia de anfitrión. CI configurado en `.github/workflows/ci.yml`. | Node local `23.6.1` está fuera del rango soportado. CI remoto con Node 22 no ejecutado (`gh` no instalado; cambios sin commit ni push); pruebas visuales y revisión real de HTTPS/WSS, proxy y cuotas pendientes por falta de URL/acceso al hosting. Publicación no realizada ni autorizada. |

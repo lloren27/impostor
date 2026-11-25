@@ -1,5 +1,6 @@
 import { compareRoomScript, redis } from "./lua";
 import { Room } from "./types";
+import { recordMetric } from "../metrics";
 export const ROOM_TTL_SECONDS = 7200;
 export const ROOM_EMPTY_TTL_SECONDS = 600;
 export const roomKey = (code: string) => `room:${code.toUpperCase()}`;
@@ -50,6 +51,7 @@ export async function updateRoom<T>(
       return result;
     }
     if (saved !== "CONFLICT") throw new Error("ROOM_NOT_FOUND");
+    recordMetric("redis_conflicts");
     await new Promise(resolve => setTimeout(resolve, 5 + Math.random() * 25 * (attempt + 1)));
   }
   throw new Error("ROOM_BUSY");

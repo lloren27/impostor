@@ -1,4 +1,4 @@
-import { GamePhase, GameState, RoundResult, WordEntry } from '@/interfaces/game.interface'
+import { GamePhase, GameState, Player, RoundResult, WordEntry } from '@/interfaces/game.interface'
 import { defineStore } from 'pinia'
 
 export const useGameStore = defineStore('game', {
@@ -24,17 +24,17 @@ export const useGameStore = defineStore('game', {
   }),
   // NO MODIFICAN SOLO COMPUTAN ESA INFORMACIÓN
   getters: {
-    mePlayer(state) {
-      if (!state.playerId) return null
-      return state.players.find((p) => p.id === state.playerId) ?? null
+    mePlayer(): Player | null {
+      if (!this.playerId) return null
+      return this.players.find((p) => p.id === this.playerId) ?? null
     },
-    isHost(state): boolean {
-      const me = (this as any).mePlayer
+    isHost(): boolean {
+      const me = this.mePlayer
       return !!me?.isHost
     },
-    isMyTurn(state): boolean {
-      const me = (this as any).mePlayer
-      return !!me && state.currentPlayerId === me.id
+    isMyTurn(): boolean {
+      const me = this.mePlayer
+      return !!me && this.currentPlayerId === me.id
     },
     roundStarterName(state): string | null {
       if (!state.roundStarterId) return null
@@ -53,6 +53,7 @@ export const useGameStore = defineStore('game', {
     setPlayerToken(token: string) {
       this.playerToken = token
     },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setRoomJoined(payload: any) {
       this.roomCode = payload.roomCode
       this.mode = payload.room?.mode ?? payload.mode ?? 'classic'
@@ -60,7 +61,7 @@ export const useGameStore = defineStore('game', {
       // S1.1: el token viene en playerToken; player ya no incluye token
       this.playerToken = payload.playerToken
 
-      this.players = payload.room.players.map((p: any) => ({
+      this.players = (payload.room?.players ?? []).map((p: { id: string; name: string; alive: boolean; isHost?: boolean; connected?: boolean }) => ({
         id: p.id,
         name: p.name,
         alive: p.alive,
@@ -87,8 +88,8 @@ export const useGameStore = defineStore('game', {
       this.resetVoting()
     },
 
-    updatePlayers(players: any[]) {
-      this.players = players.map((p: any) => ({
+    updatePlayers(players: { id: string; name: string; alive: boolean; isHost?: boolean; connected?: boolean }[]) {
+      this.players = players.map((p) => ({
         id: p.id,
         name: p.name,
         alive: p.alive,
@@ -97,7 +98,7 @@ export const useGameStore = defineStore('game', {
       }))
 
       if (this.me) {
-        const updatedMe = players.find((p: any) => p.id === this.me?.id)
+        const updatedMe = players.find((p) => p.id === this.me?.id)
         if (updatedMe) {
           this.me = {
             ...this.me,
@@ -148,7 +149,7 @@ export const useGameStore = defineStore('game', {
       this.myVote = null
       this.hasVoted = false
     },
-    setTieCandidates(players: any[] | null) {
+    setTieCandidates(players: Player[] | null) {
       // S1.1: tieCandidates ya vienen como PublicPlayer[]
       this.tieCandidates = players
     },
@@ -163,10 +164,10 @@ export const useGameStore = defineStore('game', {
       roomCode: string
       mode: string
       phase: GamePhase
-      players: any[]
+      players: { id: string; name: string; alive: boolean; isHost?: boolean; connected?: boolean }[]
       currentRound: number
-      words: any[]
-      tieCandidates: any
+      words: WordEntry[]
+      tieCandidates: { id: string; name: string; alive: boolean; isHost?: boolean; connected?: boolean }[] | null
       voteEpoch: number
       winner: string | null
       lastEliminatedId: string | null
@@ -182,7 +183,7 @@ export const useGameStore = defineStore('game', {
       this.currentRound = snapshot.currentRound
       this.voteEpoch = snapshot.voteEpoch
 
-      this.players = snapshot.players.map((p: any) => ({
+      this.players = snapshot.players.map((p) => ({
         id: p.id,
         name: p.name,
         alive: p.alive,
@@ -192,7 +193,7 @@ export const useGameStore = defineStore('game', {
 
       // Actualizar me si existe
       if (this.me) {
-        const updatedMe = snapshot.players.find((p: any) => p.id === this.me?.id)
+        const updatedMe = snapshot.players.find((p) => p.id === this.me?.id)
         if (updatedMe) {
           this.me = {
             ...this.me,
@@ -220,7 +221,7 @@ export const useGameStore = defineStore('game', {
 
       // Restaurar candidatos de empate
       this.tieCandidates = snapshot.tieCandidates
-        ? snapshot.tieCandidates.map((p: any) => ({
+        ? snapshot.tieCandidates.map((p) => ({
             id: typeof p === 'string' ? p : p.id,
             name: typeof p === 'string' ? '' : p.name,
             alive: typeof p === 'string' ? true : p.alive,
@@ -244,7 +245,7 @@ export const useGameStore = defineStore('game', {
             connected: false,
           }
         } else if (snapshot.lastEliminatedId) {
-          const elim = snapshot.players.find((p: any) => p.id === snapshot.lastEliminatedId)
+          const elim = snapshot.players.find((p) => p.id === snapshot.lastEliminatedId)
           if (elim) {
             eliminatedPlayer = {
               id: elim.id,

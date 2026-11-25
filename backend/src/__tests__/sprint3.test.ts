@@ -1061,13 +1061,14 @@ async function testDisconnectRecalculatesEligibility() {
 
   try {
     // Alice vota por Charlie
+    const aliceVoteConfirmed = waitForEvent(aliceSocket, "voteConfirmed");
     aliceSocket.emit("submitVote", {
       roomCode,
       voterId: aliceId,
       targetId: charlieId,
       voteEpoch: 0,
     });
-    await delay(200);
+    await aliceVoteConfirmed;
 
     // Simular que Bob se desconectó hace mucho (fuera de la gracia)
     const room = await redis.get<any>(roomKey);
@@ -1079,11 +1080,16 @@ async function testDisconnectRecalculatesEligibility() {
     await redis.set(roomKey, room, { ex: 3600 });
 
     // Bob se desconecta del socket
+    const bobDisconnected = waitForEvent(charlieSocket, "playersUpdated");
     bobSocket.disconnect();
-    await delay(200);
+    await bobDisconnected;
 
-    // Charlie vota por Bob — submitVote ejecuta pruneDisconnected,
-    // que poda a Bob (desconectado > 2 min). eligibleVoters = [Alice, Charlie].
+    const roomBeforeLastVote = await redis.get<any>(roomKey);
+    assert(roomBeforeLastVote?.phase === "voting", "La sala debe seguir en voting");
+    assert(roomBeforeLastVote.votes.length === 1 && roomBeforeLastVote.votes[0].voterId === aliceId,
+      "El voto confirmado de Alice debe seguir en Redis tras la desconexión de Bob");
+
+    // Charlie vota por Bob. eligibleVoters = [Alice, Charlie].
     // Alice votó por Charlie, Charlie vota por Bob → empate 1-1 → tieVote.
     const tieVotePromise = waitForEvent(charlieSocket, "tieVote");
     charlieSocket.emit("submitVote", {
